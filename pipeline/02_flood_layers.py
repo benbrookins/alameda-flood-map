@@ -2,7 +2,7 @@
 
 Outputs:
   data/work/flood_full.gpkg      full precision, EPSG:3310 (for the population math; gitignored)
-  data/build/flood/<name>.geojson simplified, EPSG:4326 (for the web page)
+  docs/data/flood/<name>.geojson simplified, EPSG:4326 (for the web page)
 
 Layers: bay_{1..4}ft (ocean-connected), low_{1..4}ft (isolated low-lying areas),
 fema_100yr (1% annual chance), fema_500yr (0.2% zone plus the 1% zone).
@@ -16,7 +16,7 @@ import shapely
 ROOT = Path(__file__).resolve().parent.parent
 RAW = ROOT / "data" / "raw"
 WORK = ROOT / "data" / "work"
-WEB = ROOT / "data" / "build" / "flood"
+WEB = ROOT / "docs" / "data" / "flood"
 CRS = 3310  # California Albers, meters
 LEVELS_FT = [1, 2, 3, 4]
 SIMPLIFY_M = 8

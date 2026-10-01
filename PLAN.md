@@ -60,20 +60,17 @@ against NOAA tide station 9414750 (Alameda) before it goes on the page:
 ```
 alameda-flood-map/
 ├── PLAN.md
-├── pipeline/                # Python, run offline once; outputs are committed
+├── pipeline/                # Python, run offline; outputs are committed
 │   ├── 01_download.py       # fetch raw sources → data/raw/ (gitignored)
-│   ├── 02_flood_layers.py   # clip, union per scenario, simplify → data/build/
-│   ├── 03_census.py         # ACS tracts + 2020 block populations
-│   ├── 04_points.py         # facilities, shelter candidates, crossings
-│   ├── 05_precompute.py     # stats for every scenario combination
-│   └── 06_bundle.py         # inline the data into dist/index.html
-├── web/
-│   ├── template.html        # MapLibre UI, CSS, JS
-│   └── app.js
+│   ├── 02_flood_layers.py   # clip and simplify flood layers → docs/data/flood/
+│   ├── 03_census.py         # tract indicators + flooded shares → docs/data/
+│   └── 04_points.py         # (planned) facilities, shelter candidates, crossings
 ├── data/
 │   ├── raw/                 # gitignored, large
-│   └── build/               # compact GeoJSON / JSON
-└── dist/index.html          # single shareable file
+│   └── work/                # gitignored, full-precision intermediates
+└── docs/                    # the website, served by GitHub Pages
+    ├── index.html, style.css, app.js
+    └── data/                # compact GeoJSON / JSON the page loads
 ```
 
 ### Offline pipeline (Python)
@@ -113,13 +110,16 @@ alameda-flood-map/
 ### Front end
 - **MapLibre GL JS** loaded from a CDN (WebGL, so it handles many polygons
   smoothly and makes layer styling easy).
-- **Basemap:** a free vector style such as OpenFreeMap or CARTO Positron.
-  It needs internet, and so does everything except the inlined data.
-- **Plain JS with no build step,** since Node isn't installed. `06_bundle.py`
-  inlines CSS, JS, and data into `dist/index.html`.
-- **Hosting:** public GitHub Pages (`gh` is already set up). Data files can
-  stay separate rather than inlined, but the total should stay small (a few
-  MB) so the page loads fast on phones.
+- **Basemap:** OpenFreeMap "Positron" (free, no API key). CARTO's free raster
+  tiles now require a key. The map is always light, even when the viewer's
+  system is in dark mode (the side panel follows the system setting).
+- **Plain JS with no build step,** since Node isn't installed. The page
+  fetches its data files from `docs/data/`.
+- **Run locally:** `python3 -m http.server 8765 --directory docs`, then open
+  http://localhost:8765. URL parameters set the scenario, e.g.
+  `?b=3&r=100&c=1&v=nocar` (Bay level, FEMA zone, low-lying on/off, shading).
+- **Hosting:** public GitHub Pages, serving from the `docs/` folder. The
+  data total should stay small (a few MB) so the page loads fast on phones.
 - **Required wording on the page:**
   - "Potential shelter sites — not official, not verified open"
   - "Planning tool, not an official forecast or evacuation order"
@@ -249,7 +249,15 @@ Status key: ☐ to do, ⚠ verify availability or licensing first.
    Finding: FEMA zones include Bay coastal flooding, so most Bay-level
    flooding already sits inside the FEMA 100-yr zone. Label the FEMA slider
    as official flood zones, not just rain/creek flooding. *(Opus)*
-4. **Map UI.** Sliders, the choropleth, and the summary panel. *(Sonnet)*
+4. **Map UI.** ✅ Done (`docs/`). Bay water level slider, FEMA zone buttons,
+   low-lying toggle, eight shading options (orange sequential ramp, quantile
+   classes), live summary of people, homes, and vulnerable groups versus the
+   county, a most-affected-neighborhoods list, tract popups with
+   margin-of-error notes, and a collapsible legend. Works on phones (map
+   pinned above the controls). Tested in headless Chrome; the numbers on the
+   page match the precomputed scenarios. Not yet done: keyboard arrow-key
+   behavior on button groups, and testing in Safari and Firefox. The page
+   deliberately doesn't mention El Niño or specific months. *(Sonnet)*
 5. **Points and roads.** Facilities, shelters, cut roads, crossings.
    *(Sonnet)*
 6. **Polish and share.** Disclaimers, sources, mobile layout, bundling,

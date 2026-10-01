@@ -6,7 +6,7 @@ that share (homes use 2020 housing units). Summing blocks gives each tract's flo
 the page multiplies by the tract's ACS counts. This assumes people are spread evenly within a block
 and that flooded residents look like their tract on each ACS indicator.
 
-Outputs: data/build/tracts.geojson, data/build/scenarios.json
+Outputs: docs/data/tracts.geojson, docs/data/scenarios.json
 """
 import json
 import math
@@ -21,7 +21,7 @@ from rasterio.transform import from_origin
 
 ROOT = Path(__file__).resolve().parent.parent
 RAW = ROOT / "data" / "raw"
-BUILD = ROOT / "data" / "build"
+BUILD = ROOT / "docs" / "data"
 FLOOD = ROOT / "data" / "work" / "flood_full.gpkg"
 CRS = 3310
 CELL = 10  # meters
@@ -66,6 +66,7 @@ def tract_indicators(acs):
         out[f"{name}_lowrel"] = (cv > CV_UNRELIABLE).astype(int)
         if universe:
             uni = acs[f"{table}_{universe}E"]
+            out[f"{name}_u"] = uni.round().astype("Int64")
             out[f"{name}_pct"] = (100 * est / uni.where(uni > 0)).round(1)
     out["income"] = acs["B19013_001E"].round().astype("Int64")
     return out
@@ -164,7 +165,16 @@ def main():
     (BUILD / "scenarios.json").write_text(json.dumps({"meta": meta, "scenarios": scenarios}, separators=(",", ":")))
 
     t = tracts.merge(ind, left_on="TRACTCE", right_index=True, how="left", validate="1:1")
-    t = t[["GEOID", "NAMELSAD", *ind.columns, "geometry"]].rename(columns={"NAMELSAD": "name"}).to_crs(4326)
+    t["pop20"] = t.TRACTCE.map(tract_pop).fillna(0).astype(int)
+    t["hu20"] = t.TRACTCE.map(tract_hu).fillna(0).astype(int)
+
+    places = gpd.read_file(f"zip://{RAW / 'census' / 'places_ca.zip'}").to_crs(CRS)[["NAME", "geometry"]]
+    pts = gpd.GeoDataFrame(geometry=t.geometry.representative_point(), index=t.index, crs=CRS)
+    joined = gpd.sjoin(pts, places, how="left", predicate="within")
+    t["place"] = joined["NAME"].groupby(level=0).first().reindex(t.index).fillna("Unincorporated")
+
+    t = t[["GEOID", "NAMELSAD", "place", "pop20", "hu20", *ind.columns, "geometry"]]
+    t = t.rename(columns={"NAMELSAD": "name"}).to_crs(4326)
     out = BUILD / "tracts.geojson"
     out.unlink(missing_ok=True)
     t.to_file(out, driver="GeoJSON", COORDINATE_PRECISION=5)

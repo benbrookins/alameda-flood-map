@@ -62,8 +62,12 @@ See **PLAN.md** for the architecture and data checklist. Key decisions:
   ART is parked as an optional later cross-check, see PLAN.md),
   a FEMA rain/creek slider, and a "rain during high tide" toggle.
 - Tsunami and landslide layers are deferred.
-- Python offline pipeline using uv; front end is MapLibre GL JS with
-  inlined data.
+- Python offline pipeline using uv; front end is MapLibre GL JS in `docs/`
+  (served by GitHub Pages) loading data from `docs/data/`.
 - Who is affected is estimated with 2020 Census block populations, then
   rolled up to ACS tracts.
-- No data downloaded yet. Next step is phase 1 (setup) in PLAN.md.
+- Status: phases 1–4 are done (setup, flood layers, census exposure, map
+  page). Next is phase 5 (critical facilities, shelters, cut roads), then
+  phase 6 (polish and GitHub Pages). See PLAN.md.
+- Run the page locally with `python3 -m http.server 8765 --directory docs`.
+  The raw data and `.env` (Census API key) are gitignored.

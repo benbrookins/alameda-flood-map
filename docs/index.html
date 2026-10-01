@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Alameda County Flood Risk Explorer</title>
+<meta name="description" content="Explore flood scenarios for Alameda County and see which neighborhoods and residents are most exposed.">
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app">
+  <aside class="panel" id="panel">
+    <header>
+      <h1>Alameda County Flood Risk Explorer</h1>
+      <p class="sub">Near-term flood scenarios, and who is most exposed.</p>
+    </header>
+
+    <section class="controls" aria-label="Flood scenario">
+      <div class="control">
+        <label for="bay">Bay water level <span class="val" id="bayVal"></span></label>
+        <input type="range" id="bay" min="0" max="4" step="1" value="0" aria-describedby="bayHint">
+        <div class="ticks" aria-hidden="true"><span>Normal</span><span>+1</span><span>+2</span><span>+3</span><span>+4 ft</span></div>
+        <p class="hint" id="bayHint"></p>
+      </div>
+
+      <div class="control">
+        <span class="label" id="rainLabel">Official FEMA flood zones</span>
+        <div class="seg" role="group" aria-labelledby="rainLabel" id="rain">
+          <button type="button" data-v="0">None</button>
+          <button type="button" data-v="100">100-year</button>
+          <button type="button" data-v="500">500-year</button>
+        </div>
+        <p class="hint">Areas FEMA maps as having a 1% (100-year) or 0.2% (500-year) yearly chance of flooding, from creeks, heavy rain, or the Bay.</p>
+      </div>
+
+      <div class="control">
+        <label class="check" for="low">
+          <input type="checkbox" id="low">
+          <span>Include low-lying areas that may not drain</span>
+        </label>
+        <p class="hint" id="lowHint">When Bay water is high, storm drains can back up and low spots can pond even if Bay water does not reach them directly. Needs a Bay level above Normal.</p>
+      </div>
+
+      <div class="control">
+        <span class="label" id="viewLabel">Shade the map by</span>
+        <div class="chips" role="group" aria-labelledby="viewLabel" id="view"></div>
+      </div>
+    </section>
+
+    <section id="summary" aria-live="polite"></section>
+    <section id="top"></section>
+
+    <footer class="about">
+      <details>
+        <summary>About these numbers</summary>
+        <p>This is a planning tool, not an official forecast, warning, or evacuation order. Follow local emergency officials.</p>
+        <p>Flood areas come from static, modeled maps. Bay water levels use NOAA's sea level rise maps, which show everywhere connected to the Bay below a given water level and can overstate flooding behind levees and shoreline protection. FEMA zones are the official regulatory maps. Neither predicts a specific storm.</p>
+        <p>People and homes in flooded areas come from 2020 Census blocks, assuming residents are spread evenly within each block. Other figures apply American Community Survey 2020&ndash;2024 tract estimates to the flooded share of each tract, assuming flooded residents resemble their tract overall. All figures are estimates, and small groups can have wide margins of error.</p>
+        <p>Sources: NOAA Office for Coastal Management Sea Level Rise data; FEMA National Flood Hazard Layer; U.S. Census Bureau (2020 Census and ACS 5-year 2020&ndash;2024). Basemap by OpenFreeMap, &copy; OpenMapTiles, data from OpenStreetMap contributors.</p>
+      </details>
+    </footer>
+  </aside>
+
+  <main class="mapwrap">
+    <div id="map" role="application" aria-label="Flood map of Alameda County"></div>
+    <details class="legend" id="legend"><summary>Legend</summary><div id="legendBody"></div></details>
+  </main>
+</div>
+<noscript><p style="padding:1rem">This map needs JavaScript.</p></noscript>
+<script src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

@@ -92,6 +92,7 @@ def fema():
 def census_geo():
     for name, url in {
         "tracts_ca.zip": "https://www2.census.gov/geo/tiger/GENZ2024/shp/cb_2024_06_tract_500k.zip",
+        "places_ca.zip": "https://www2.census.gov/geo/tiger/GENZ2024/shp/cb_2024_06_place_500k.zip",
         "blocks_alameda.zip": "https://www2.census.gov/geo/tiger/TIGER2020PL/STATE/06_CALIFORNIA/06001/tl_2020_06001_tabblock20.zip",
     }.items():
         print(name)
