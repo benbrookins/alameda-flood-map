@@ -239,7 +239,8 @@ Status key: ☐ to do, ⚠ verify availability or licensing first.
    built on the fly in phase 3, where they're needed for the population
    math; the page draws the component layers stacked. ART is parked.
    Follow-up: shrink the web files if load time matters.
-3. ✅ **Done** (`pipeline/03_census.py`, runs in ~15 s). Uses a 10 m grid
+3. **Census and weighting.** ✅ Done (`pipeline/03_census.py`, runs in
+   ~15 s). Block-level flooded shares → tract shares → ACS counts, using a 10 m grid
    overlay instead of polygon intersection. Outputs `data/build/tracts.geojson`
    (ACS counts, %, low-reliability flags, income) and
    `data/build/scenarios.json` (people and homes share per tract for all 30
@@ -247,10 +248,7 @@ Status key: ☐ to do, ⚠ verify availability or licensing first.
    population correlation 0.98, totals never decrease as scenarios worsen.
    Finding: FEMA zones include Bay coastal flooding, so most Bay-level
    flooding already sits inside the FEMA 100-yr zone. Label the FEMA slider
-   as official flood zones, not just rain/creek flooding.
-   Original description: **Census and weighting.** Block-level flooded shares → tract shares →
-   ACS counts. Sanity-check the county totals. *(Opus for the join and
-   weighting logic, then Sonnet)*
+   as official flood zones, not just rain/creek flooding. *(Opus)*
 4. **Map UI.** Sliders, the choropleth, and the summary panel. *(Sonnet)*
 5. **Points and roads.** Facilities, shelters, cut roads, crossings.
    *(Sonnet)*
