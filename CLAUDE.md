@@ -55,7 +55,8 @@ County, CA. Core features:
 ## Plan (decided 2026-10-01)
 See **PLAN.md** for the architecture and data checklist. Key decisions:
 - Focus is near-term emergency response for the 2026–27 El Niño.
-- Hosting: public GitHub Pages URL. This repo is public, so describe the
+- Hosting: public GitHub Pages at https://benbrookins.github.io/alameda-flood-map/
+  (serves `docs/` from `main`; pushing to `main` redeploys in about a minute). This repo is public, so describe the
   timeframe as "near-term" in all page text, docs, and commit messages. Don't
   name specific target months.
 - Main controls: a Bay water level slider (NOAA maps, normal to +4 ft;
