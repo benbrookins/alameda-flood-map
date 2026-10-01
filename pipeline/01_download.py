@@ -1,6 +1,6 @@
 """Download raw source data into data/raw/. Usage: uv run pipeline/01_download.py [source ...]
 
-Sources: fema, noaa_slr, census_geo, acs, block_pop, tides, schools, osm (default), plus
+Sources: fema, noaa_slr, census_geo, acs, block_pop, tides, schools, osm, osm_facilities, osm_roads (default), plus
 the parked, optional art and art_roads, which must be named explicitly.
 """
 import json
@@ -162,6 +162,55 @@ def osm():
     save(RAW / "osm" / "amenities.json", r.content)
 
 
+FACILITY_QUERY = """
+[out:json][timeout:240];
+area["boundary"="administrative"]["name"="Alameda County"]["admin_level"="6"]->.a;
+(
+  nwr["amenity"~"^(hospital|nursing_home)$"](area.a);
+  nwr["amenity"="social_facility"]["social_facility"~"^(assisted_living|nursing_home|group_home)$"](area.a);
+  nwr["healthcare"="dialysis"](area.a);
+);
+out center tags;
+"""
+
+ROADS_QUERY = """
+[out:json][timeout:300];
+area["boundary"="administrative"]["name"="Alameda County"]["admin_level"="6"]->.a;
+way["highway"~"^(motorway|trunk|primary|secondary|tertiary)(_link)?$"](area.a);
+out geom tags;
+"""
+
+
+OVERPASS_SERVERS = ["https://overpass-api.de/api/interpreter", "https://overpass.private.coffee/api/interpreter",
+                    "https://overpass.kumi.systems/api/interpreter"]
+
+
+def overpass(query, out_name):
+    for attempt in range(6):
+        url = OVERPASS_SERVERS[attempt % len(OVERPASS_SERVERS)]
+        try:
+            r = requests.post(url, data={"data": query}, headers=HEADERS, timeout=420)
+            r.raise_for_status()
+            n = len(r.json()["elements"])
+            print(f"  {n} elements from {url.split('/')[2]}")
+            save(RAW / "osm" / out_name, r.content)
+            return
+        except (requests.RequestException, ValueError) as e:
+            print(f"  {url.split('/')[2]} failed ({str(e)[:60]}); retrying")
+            time.sleep(10 * (attempt + 1))
+    raise RuntimeError(f"Overpass failed for {out_name}")
+
+
+def osm_facilities():
+    print("OSM hospitals, care homes, dialysis")
+    overpass(FACILITY_QUERY, "facilities.json")
+
+
+def osm_roads():
+    print("OSM major roads")
+    overpass(ROADS_QUERY, "roads.json")
+
+
 def load_env():
     env = ROOT / ".env"
     if env.exists():
@@ -171,7 +220,7 @@ def load_env():
                 os.environ.setdefault(k.strip(), v.strip())
 
 
-SOURCES = {f.__name__: f for f in [art, art_roads, fema, noaa_slr, census_geo, acs, block_pop, tides, schools, osm]}
+SOURCES = {f.__name__: f for f in [art, art_roads, fema, noaa_slr, census_geo, acs, block_pop, tides, schools, osm, osm_facilities, osm_roads]}
 
 if __name__ == "__main__":
     parked = {"art", "art_roads"}  # optional, slow; name them explicitly to download

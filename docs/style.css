@@ -105,6 +105,17 @@ ol.toplist { margin: 0; padding: 0; list-style: none; }
 .about summary { cursor: pointer; font-weight: 600; color: var(--text); }
 .about p { margin: 8px 0; }
 
+.regions {
+  position: absolute; top: 10px; left: 10px; right: 56px; z-index: 2;
+  display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; padding: 2px 0;
+}
+.regions::-webkit-scrollbar { display: none; }
+.region {
+  flex: none; padding: 6px 11px; border: 1px solid #dcdad3; border-radius: 999px;
+  background: rgba(255, 255, 255, 0.95); color: #0b0b0b; font: inherit; font-size: 13px; cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+}
+.region:hover { background: #fff; border-color: #8f8d85; }
 .legend {
   position: absolute; left: 10px; bottom: 28px; max-width: 250px; padding: 10px 12px;
   background: rgba(255, 255, 255, 0.94); border: 1px solid #dcdad3; border-radius: 10px;

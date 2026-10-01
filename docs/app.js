@@ -41,6 +41,16 @@ const OVERLAYS = [
 const OV = Object.fromEntries(OVERLAYS.map((o) => [o.id, o]));
 const TABLE_ROWS = OVERLAYS.filter((o) => o.count);
 
+const COUNTY_BOUNDS = [[-122.36, 37.44], [-121.46, 37.92]];
+const REGIONS = [
+  { label: 'Full county', bounds: COUNTY_BOUNDS },
+  { label: 'Berkeley–Oakland–Alameda', bounds: [[-122.34, 37.70], [-122.16, 37.91]] },
+  { label: 'San Leandro–Hayward', bounds: [[-122.24, 37.60], [-122.02, 37.74]] },
+  { label: 'Fremont–Newark–Union City', bounds: [[-122.15, 37.46], [-121.90, 37.62]] },
+  { label: 'Tri-Valley', bounds: [[-122.0, 37.60], [-121.66, 37.76]] },
+  { label: 'Fit to flooding', flood: true },
+];
+
 // ---- state -----------------------------------------------------------------------------------
 
 const q = new URLSearchParams(location.search);
@@ -76,8 +86,8 @@ const short = (name) => name.replace('Census Tract ', 'Tract ');
 const map = new maplibregl.Map({
   container: 'map',
   style: 'https://tiles.openfreemap.org/styles/positron',
-  bounds: [[-122.36, 37.44], [-121.46, 37.92]],
-  fitBoundsOptions: { padding: 12 },
+  bounds: COUNTY_BOUNDS,
+  fitBoundsOptions: { padding: { top: 50, bottom: 12, left: 12, right: 12 } },
   attributionControl: { compact: true },
   dragRotate: false,
   pitchWithRotate: false,
@@ -152,6 +162,7 @@ function applyShading() {
 // ---- flood scenario --------------------------------------------------------------------------
 
 let floodToken = 0;
+let lastFlood = [];
 async function applyFlood() {
   const token = ++floodToken;
   const lowOn = S.bay > 0 && S.low;
@@ -162,6 +173,7 @@ async function applyFlood() {
     S.rain >= 500 ? getJSON('data/flood/fema_500yr.geojson') : EMPTY,
   ]);
   if (token !== floodToken) return;
+  lastFlood = [bay, low, f100, f500];
   map.getSource('bay').setData(bay);
   map.getSource('low').setData(low);
   map.getSource('fema100').setData(f100);
@@ -312,6 +324,18 @@ function bboxFromGeometry(g) {
   return [[x0, y0], [x1, y1]];
 }
 
+function floodBounds() {
+  let [x0, y0, x1, y1] = [180, 90, -180, -90];
+  const walk = (a) => (typeof a[0] === 'number' ? ((x0 = Math.min(x0, a[0])), (x1 = Math.max(x1, a[0])), (y0 = Math.min(y0, a[1])), (y1 = Math.max(y1, a[1]))) : a.forEach(walk));
+  for (const fc of lastFlood) for (const f of fc.features) walk(f.geometry.coordinates);
+  return x0 > x1 ? null : [[x0, y0], [x1, y1]];
+}
+
+function goToRegion(r) {
+  const bounds = r.flood ? floodBounds() : r.bounds;
+  map.fitBounds(bounds || COUNTY_BOUNDS, { padding: { top: 56, bottom: 24, left: 24, right: 24 }, maxZoom: 14 });
+}
+
 function selectTract(id) {
   S.sel = id;
   map.setFilter('tract-sel', ['==', ['get', 'GEOID'], id || '']);
@@ -362,6 +386,7 @@ function buildControls() {
 
 buildControls();
 renderControls();
+for (const r of REGIONS) $('#regions').append(el('button', { type: 'button', class: 'region', text: r.label, onclick: () => goToRegion(r) }));
 $('#legend').open = matchMedia('(min-width: 821px)').matches;
 
 map.on('load', async () => {
