@@ -1,0 +1,15 @@
+[project]
+name = "alameda-flood-map"
+version = "0.1.0"
+description = "Offline data pipeline for the Alameda County flood-risk dashboard"
+requires-python = ">=3.12"
+dependencies = [
+    "geopandas",
+    "pyogrio",
+    "shapely",
+    "pandas",
+    "requests",
+]
+
+[tool.uv]
+package = false

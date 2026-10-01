@@ -52,8 +52,18 @@ County, CA. Core features:
   installed and matching CLI version (2.1.286).
 - No Node.js/npm installed on this machine.
 
-## Not yet started
-- No actual project folder/repo created yet for this dashboard.
-- No data downloaded or planning decisions finalized (which flood scenarios,
-  exact shelter-site source, final tech stack for the map library) — this was
-  the next step before context was moved to this VS Code session.
+## Plan (decided 2026-10-01)
+See **PLAN.md** for the architecture and data checklist. Key decisions:
+- Focus is near-term emergency response for the 2026–27 El Niño.
+- Hosting: public GitHub Pages URL. This repo is public, so describe the
+  timeframe as "near-term" in all page text, docs, and commit messages. Don't
+  name specific target months.
+- Main controls: a Bay water level slider (NOAA maps, normal to +4 ft;
+  ART is parked as an optional later cross-check, see PLAN.md),
+  a FEMA rain/creek slider, and a "rain during high tide" toggle.
+- Tsunami and landslide layers are deferred.
+- Python offline pipeline using uv; front end is MapLibre GL JS with
+  inlined data.
+- Who is affected is estimated with 2020 Census block populations, then
+  rolled up to ACS tracts.
+- No data downloaded yet. Next step is phase 1 (setup) in PLAN.md.
