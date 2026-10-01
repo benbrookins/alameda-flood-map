@@ -3,3 +3,4 @@ __pycache__/
 data/raw/
 .DS_Store
 .env
+data/work/

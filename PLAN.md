@@ -230,9 +230,15 @@ Status key: ☐ to do, ⚠ verify availability or licensing first.
 
 1. **Setup.** Install uv and the Python environment; add `.gitignore` for
    `data/raw/`. *(Sonnet)*
-2. **Flood layers.** Use NOAA (4 levels, connected and low-lying) and
-   FEMA, build the 30 scenario unions, and check them visually in a quick
-   map. ART is parked for later. *(Sonnet)*
+2. **Flood layers.** ✅ Done (`pipeline/02_flood_layers.py`, takes about 30
+   minutes because the NOAA polygons are large, so don't rerun casually).
+   Produces 10 component layers: NOAA connected and low-lying at +1 to +4
+   ft, and FEMA 100-yr and 500-yr. Full-precision copies go to
+   `data/work/flood_full.gpkg` (gitignored) and simplified web copies
+   (about 7 MB total) to `data/build/flood/`. The 30 scenario unions are
+   built on the fly in phase 3, where they're needed for the population
+   math; the page draws the component layers stacked. ART is parked.
+   Follow-up: shrink the web files if load time matters.
 3. **Census and weighting.** Block-level flooded shares → tract shares →
    ACS counts. Sanity-check the county totals. *(Opus for the join and
    weighting logic, then Sonnet)*

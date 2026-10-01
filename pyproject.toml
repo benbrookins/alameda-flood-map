@@ -9,6 +9,7 @@ dependencies = [
     "shapely",
     "pandas",
     "requests",
+    "matplotlib>=3.11.2",
 ]
 
 [tool.uv]
