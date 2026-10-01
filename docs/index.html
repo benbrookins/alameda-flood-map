@@ -46,9 +46,18 @@
         <span class="label" id="viewLabel">Shade the map by</span>
         <div class="chips" role="group" aria-labelledby="viewLabel" id="view"></div>
       </div>
+
+      <div class="control">
+        <span class="label">Also show on the map</span>
+        <label class="check opt"><input type="checkbox" data-show="fac"><span>Critical facilities: hospitals, nursing and assisted living, dialysis, fire, police</span></label>
+        <label class="check opt"><input type="checkbox" data-show="shelter"><span>Potential shelters that stay dry: schools, community centers, libraries</span></label>
+        <label class="check opt"><input type="checkbox" data-show="worship"><span>Places of worship, as lower-confidence shelters</span></label>
+        <label class="check opt"><input type="checkbox" data-show="roads"><span>Major roads under water</span></label>
+      </div>
     </section>
 
     <section id="summary" aria-live="polite"></section>
+    <section id="response"></section>
     <section id="top"></section>
 
     <footer class="about">
@@ -57,7 +66,8 @@
         <p>This is a planning tool, not an official forecast, warning, or evacuation order. Follow local emergency officials.</p>
         <p>Flood areas come from static, modeled maps. Bay water levels use NOAA's sea level rise maps, which show everywhere connected to the Bay below a given water level and can overstate flooding behind levees and shoreline protection. FEMA zones are the official regulatory maps. Neither predicts a specific storm.</p>
         <p>People and homes in flooded areas come from 2020 Census blocks, assuming residents are spread evenly within each block. Other figures apply American Community Survey 2020&ndash;2024 tract estimates to the flooded share of each tract, assuming flooded residents resemble their tract overall. All figures are estimates, and small groups can have wide margins of error.</p>
-        <p>Sources: NOAA Office for Coastal Management Sea Level Rise data; FEMA National Flood Hazard Layer; U.S. Census Bureau (2020 Census and ACS 5-year 2020&ndash;2024). Basemap by OpenFreeMap, &copy; OpenMapTiles, data from OpenStreetMap contributors.</p>
+        <p>Critical facilities, shelter sites, and roads are shown where the flooded area covers their mapped point or line. Facility, library, community center, place of worship, and road data come from OpenStreetMap and are incomplete; schools come from the California Department of Education directory. Potential shelters are only sites that could plausibly serve as shelters and have not been checked or confirmed. Bridges, elevated roadway, and tunnels are not counted as flooded roads.</p>
+        <p>Sources: NOAA Office for Coastal Management Sea Level Rise data; FEMA National Flood Hazard Layer; U.S. Census Bureau (2020 Census and ACS 5-year 2020&ndash;2024); California Department of Education; OpenStreetMap contributors. Basemap by OpenFreeMap, &copy; OpenMapTiles, data from OpenStreetMap contributors.</p>
       </details>
     </footer>
   </aside>

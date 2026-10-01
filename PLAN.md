@@ -258,8 +258,22 @@ Status key: ☐ to do, ⚠ verify availability or licensing first.
    page match the precomputed scenarios. Not yet done: keyboard arrow-key
    behavior on button groups, and testing in Safari and Firefox. The page
    deliberately doesn't mention El Niño or specific months. *(Sonnet)*
-5. **Points and roads.** Facilities, shelters, cut roads, crossings.
-   *(Sonnet)*
+5. **Points and roads.** ✅ Done (`pipeline/04_points.py`, `05_roads.py`).
+   1,468 sites in `docs/data/points.json`, each tagged with a bitmask of the
+   flood layers that reach it: 22 hospitals, 50 nursing/assisted living,
+   6 dialysis, 100 fire and 28 police stations, 362 public schools, 110
+   community centers, 97 libraries, 680 places of worship. Flooded major
+   road pieces per layer in `docs/data/roads/` and per-scenario kilometers
+   and top roads in `roads_summary.json` (bridges, viaducts, and tunnels
+   excluded). Page shows facility and shelter markers (flooded facilities in
+   red, only dry shelters shown), flooded roads, and an Emergency response
+   summary. **Known gap: OpenStreetMap undercounts care homes and dialysis
+   centers badly** (50 and 6, versus hundreds and about 60 in reality).
+   Better sources, if wanted: CA Community Care Licensing (care homes),
+   CMS dialysis listing, and HCAI, all address-based so they need
+   geocoding (Census batch geocoder, free). Overpass was flaky: the area
+   query timed out, so downloads use a bounding box and are clipped to the
+   county afterward. *(Sonnet)*
 6. **Polish and share.** Disclaimers, sources, mobile layout, bundling,
    GitHub Pages if needed. *(Sonnet)*
 

@@ -163,20 +163,18 @@ def osm():
 
 
 FACILITY_QUERY = """
-[out:json][timeout:240];
-area["boundary"="administrative"]["name"="Alameda County"]["admin_level"="6"]->.a;
+[out:json][timeout:240][bbox:37.44,-122.38,37.93,-121.45];
 (
-  nwr["amenity"~"^(hospital|nursing_home)$"](area.a);
-  nwr["amenity"="social_facility"]["social_facility"~"^(assisted_living|nursing_home|group_home)$"](area.a);
-  nwr["healthcare"="dialysis"](area.a);
+  nwr["amenity"~"^(hospital|nursing_home)$"];
+  nwr["amenity"="social_facility"]["social_facility"~"^(assisted_living|nursing_home|group_home)$"];
+  nwr["healthcare"="dialysis"];
 );
 out center tags;
 """
 
 ROADS_QUERY = """
-[out:json][timeout:300];
-area["boundary"="administrative"]["name"="Alameda County"]["admin_level"="6"]->.a;
-way["highway"~"^(motorway|trunk|primary|secondary|tertiary)(_link)?$"](area.a);
+[out:json][timeout:300][bbox:37.44,-122.38,37.93,-121.45];
+way["highway"~"^(motorway|trunk|primary|secondary|tertiary)(_link)?$"];
 out geom tags;
 """
 
@@ -186,8 +184,8 @@ OVERPASS_SERVERS = ["https://overpass-api.de/api/interpreter", "https://overpass
 
 
 def overpass(query, out_name):
-    for attempt in range(6):
-        url = OVERPASS_SERVERS[attempt % len(OVERPASS_SERVERS)]
+    for attempt in range(8):
+        url = OVERPASS_SERVERS[0 if attempt % 4 else attempt // 4 % len(OVERPASS_SERVERS)]
         try:
             r = requests.post(url, data={"data": query}, headers=HEADERS, timeout=420)
             r.raise_for_status()
@@ -197,7 +195,7 @@ def overpass(query, out_name):
             return
         except (requests.RequestException, ValueError) as e:
             print(f"  {url.split('/')[2]} failed ({str(e)[:60]}); retrying")
-            time.sleep(10 * (attempt + 1))
+            time.sleep(5 * (attempt + 1))
     raise RuntimeError(f"Overpass failed for {out_name}")
 
 

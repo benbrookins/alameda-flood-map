@@ -41,6 +41,19 @@ const OVERLAYS = [
 const OV = Object.fromEntries(OVERLAYS.map((o) => [o.id, o]));
 const TABLE_ROWS = OVERLAYS.filter((o) => o.count);
 
+const KIND = {
+  hospital: 'Hospital', care: 'Nursing or assisted living', dialysis: 'Dialysis center', fire: 'Fire station', police: 'Police station',
+  school: 'School', community: 'Community center', library: 'Library', worship: 'Place of worship',
+};
+const KIND_PLURAL = {
+  hospital: 'Hospitals', care: 'Nursing and assisted living', dialysis: 'Dialysis centers', fire: 'Fire stations', police: 'Police stations',
+  school: 'Schools', community: 'Community centers', library: 'Libraries', worship: 'Places of worship',
+};
+const FAC_KINDS = ['hospital', 'care', 'dialysis', 'fire', 'police'];
+const SHELTER_KINDS = ['school', 'community', 'library'];
+const SHOW_KEYS = { f: 'fac', s: 'shelter', w: 'worship', r: 'roads' };
+const POINT_LAYERS = ['pts-fac', 'pts-fac-bad', 'pts-shelter', 'pts-worship'];
+
 const COUNTY_BOUNDS = [[-122.36, 37.44], [-121.46, 37.92]];
 const REGIONS = [
   { label: 'Full county', bounds: COUNTY_BOUNDS },
@@ -60,10 +73,12 @@ const S = {
   low: q.get('c') === '1',
   view: OV[q.get('v')] ? q.get('v') : 'nocar',
   sel: null,
+  show: { fac: true, shelter: true, worship: false, roads: true },
 };
+if (q.get('s') !== null) for (const [ch, key] of Object.entries(SHOW_KEYS)) S.show[key] = q.get('s').includes(ch);
 function clampInt(v, lo, hi, d) { const n = parseInt(v, 10); return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : d; }
 
-let tracts, scen, ready = false;
+let tracts, scen, points, roadsSummary, ready = false;
 const byId = new Map();
 const bboxOf = new Map();
 const theme = () => THEME;
@@ -119,6 +134,7 @@ function addFloodLayers() {
   fema('fema100', [1, 0], 1.2, 0.12);
   map.addLayer({ id: 'low-fill', type: 'fill', source: 'low', paint: { 'fill-color': t.low, 'fill-opacity': 0.65 } }, before);
   map.addLayer({ id: 'bay-fill', type: 'fill', source: 'bay', paint: { 'fill-color': t.bay, 'fill-opacity': 0.72 } }, before);
+  addSiteLayers(before);
   map.addLayer({ id: 'tract-sel', type: 'line', source: 'tracts', filter: ['==', ['get', 'GEOID'], ''], paint: { 'line-color': t.sel, 'line-width': 3 } }, before);
 }
 
@@ -142,6 +158,81 @@ function classColors(o, n) {
   const ramp = theme().ramp;
   const pick = Array.from({ length: n }, (_, i) => ramp[n === 1 ? 0 : Math.round((i * (ramp.length - 1)) / (n - 1))]);
   return o.invert ? pick.reverse() : pick;
+}
+
+function makeIcon(shape, fill, edge, lineWidth) {
+  const size = 32, c = document.createElement('canvas');
+  c.width = c.height = size;
+  const g = c.getContext('2d');
+  g.lineJoin = 'round';
+  g.beginPath();
+  if (shape === 'diamond') { g.moveTo(16, 2); g.lineTo(30, 16); g.lineTo(16, 30); g.lineTo(2, 16); g.closePath(); } else g.rect(6, 6, 20, 20);
+  g.lineWidth = lineWidth; g.strokeStyle = edge; g.stroke();
+  g.fillStyle = fill; g.fill();
+  return g.getImageData(0, 0, size, size);
+}
+
+function addSiteLayers(before) {
+  const opt = { pixelRatio: 2 };
+  map.addImage('afm-fac-ok', makeIcon('diamond', '#4a3aa7', '#ffffff', 5), opt);
+  map.addImage('afm-fac-bad', makeIcon('diamond', '#d03b3b', '#ffffff', 5), opt);
+  map.addImage('afm-shelter', makeIcon('square', '#008300', '#ffffff', 5), opt);
+  map.addImage('afm-worship', makeIcon('square', '#ffffff', '#008300', 5), opt);
+
+  map.addSource('roads', { type: 'geojson', data: EMPTY });
+  const width = (extra) => ['interpolate', ['linear'], ['zoom'], 9, ['match', ['get', 'h'], 'fwy', 2 + extra, 'art', 1.4 + extra, 1 + extra], 14, ['match', ['get', 'h'], 'fwy', 6 + extra, 'art', 4.5 + extra, 3.5 + extra]];
+  map.addLayer({ id: 'roads-casing', type: 'line', source: 'roads', layout: { 'line-cap': 'round', 'line-join': 'round', visibility: 'none' }, paint: { 'line-color': '#ffffff', 'line-width': width(2) } }, before);
+  map.addLayer({ id: 'roads-line', type: 'line', source: 'roads', layout: { 'line-cap': 'round', 'line-join': 'round', visibility: 'none' }, paint: { 'line-color': '#d03b3b', 'line-width': width(0) } }, before);
+
+  map.addSource('points', { type: 'geojson', data: EMPTY });
+  const size = (a, b, c) => ['interpolate', ['linear'], ['zoom'], 9, a, 12, b, 15, c];
+  const kinds = (list) => ['in', ['get', 'k'], ['literal', list]];
+  const sym = (id, icon, filter, sz) => map.addLayer({
+    id, type: 'symbol', source: 'points', filter,
+    layout: { 'icon-image': icon, 'icon-size': sz, 'icon-allow-overlap': true, 'icon-ignore-placement': true, visibility: 'none' },
+  }, before);
+  sym('pts-worship', 'afm-worship', ['all', ['==', ['get', 'k'], 'worship'], ['==', ['get', 'f'], 0]], size(0.4, 0.55, 0.8));
+  sym('pts-shelter', 'afm-shelter', ['all', kinds(SHELTER_KINDS), ['==', ['get', 'f'], 0]], size(0.45, 0.65, 0.95));
+  sym('pts-fac', 'afm-fac-ok', ['all', kinds(FAC_KINDS), ['==', ['get', 'f'], 0]], size(0.55, 0.8, 1.1));
+  sym('pts-fac-bad', 'afm-fac-bad', ['all', kinds(FAC_KINDS), ['==', ['get', 'f'], 1]], size(0.85, 1.15, 1.5));
+}
+
+function applyShow() {
+  const vis = (on) => (on ? 'visible' : 'none');
+  map.setLayoutProperty('pts-fac', 'visibility', vis(S.show.fac));
+  map.setLayoutProperty('pts-fac-bad', 'visibility', vis(S.show.fac));
+  map.setLayoutProperty('pts-shelter', 'visibility', vis(S.show.shelter));
+  map.setLayoutProperty('pts-worship', 'visibility', vis(S.show.worship));
+  map.setLayoutProperty('roads-casing', 'visibility', vis(S.show.roads));
+  map.setLayoutProperty('roads-line', 'visibility', vis(S.show.roads));
+}
+
+function neededMask() {
+  let m = 0;
+  if (S.bay > 0) {
+    m |= 1 << (S.bay - 1);
+    if (S.low) m |= 1 << (4 + S.bay - 1);
+  }
+  if (S.rain >= 100) m |= 256;
+  if (S.rain >= 500) m |= 512;
+  return m;
+}
+
+function applyPoints() {
+  const m = neededMask();
+  for (const f of points.features) f.properties.f = f.properties.m & m ? 1 : 0;
+  map.getSource('points').setData(points);
+}
+
+let roadsToken = 0;
+async function applyRoads() {
+  const token = ++roadsToken;
+  const need = [];
+  if (S.bay > 0) { need.push(`bay_${S.bay}ft`); if (S.low) need.push(`low_${S.bay}ft`); }
+  if (S.rain >= 100) need.push(S.rain >= 500 ? 'fema_500yr' : 'fema_100yr');
+  const parts = await Promise.all(need.map((n) => getJSON(`data/roads/${n}.geojson`).catch(() => EMPTY)));
+  if (token !== roadsToken) return;
+  map.getSource('roads').setData({ type: 'FeatureCollection', features: parts.flatMap((p) => p.features) });
 }
 
 function applyShading() {
@@ -180,9 +271,9 @@ async function applyFlood() {
   map.getSource('fema500').setData(f500);
 }
 
+const scenarioKey = () => `b${S.bay}_r${S.rain}_c${S.bay > 0 && S.low ? 1 : 0}`;
 function scenarioShares() {
-  const c = S.bay > 0 && S.low ? 1 : 0;
-  return scen.scenarios[`b${S.bay}_r${S.rain}_c${c}`] || {};
+  return scen.scenarios[scenarioKey()] || {};
 }
 
 function compute() {
@@ -242,6 +333,45 @@ function renderSummary(r) {
   box.append(el('p', { class: 'note', text: '▲ more common in flooded areas than countywide, ▼ less common. Households are used for car access, language, and renting; residents for the rest.' }));
 }
 
+function renderResponse() {
+  const box = $('#response');
+  box.replaceChildren(el('h2', { text: 'Emergency response (estimates)' }));
+  const m = neededMask();
+  const by = {};
+  for (const f of points.features) {
+    const p = f.properties;
+    const a = (by[p.k] ||= { n: 0, hit: 0, names: [] });
+    a.n++;
+    if (p.m & m) { a.hit++; if (FAC_KINDS.includes(p.k)) a.names.push(`${p.n} (${KIND[p.k].toLowerCase()})`); }
+  }
+  const rows = (kinds, text) => kinds.filter((k) => by[k]).map((k) => el('tr', {},
+    el('td', { text: KIND_PLURAL[k] }), el('td', { class: 'num', text: text(by[k]) })));
+
+  box.append(el('h3', { class: 'sub-h', text: 'Critical facilities in flooded areas' }),
+    el('table', {}, el('tbody', {}, rows(FAC_KINDS, (a) => `${a.hit} of ${a.n}`))));
+  const names = FAC_KINDS.flatMap((k) => by[k]?.names || []);
+  if (names.length) {
+    box.append(el('p', { class: 'note', text: `Flooded: ${names.slice(0, 8).join('; ')}${names.length > 8 ? `; and ${names.length - 8} more` : ''}.` }));
+  }
+  box.append(el('p', { class: 'note', text: 'Facility locations come from OpenStreetMap and are incomplete, especially for nursing and assisted living homes and dialysis centers.' }));
+
+  box.append(el('h3', { class: 'sub-h', text: 'Potential shelters that stay dry' }),
+    el('table', {}, el('tbody', {}, rows(SHELTER_KINDS, (a) => `${a.n - a.hit} of ${a.n}`),
+      by.worship ? el('tr', {}, el('td', { text: 'Places of worship (lower confidence)' }), el('td', { class: 'num', text: `${by.worship.n - by.worship.hit} of ${by.worship.n}` })) : null)));
+  box.append(el('p', { class: 'note', text: 'Potential shelters are not official and not confirmed open. They are public schools, community centers, libraries, and places of worship that are not in the flooded area in this scenario.' }));
+
+  const rs = roadsSummary?.[scenarioKey()];
+  if (rs) {
+    box.append(el('h3', { class: 'sub-h', text: 'Major roads under water' }));
+    if (rs.km < 0.05) box.append(el('p', { class: 'empty', text: 'None in this scenario.' }));
+    else {
+      box.append(el('p', { class: 'note', text: `About ${rs.km.toFixed(rs.km < 10 ? 1 : 0)} km of freeways, highways, and main streets.` }),
+        el('table', {}, el('tbody', {}, rs.top.slice(0, 6).map(([n, km]) => el('tr', {}, el('td', { text: n }), el('td', { class: 'num', text: `${km.toFixed(1)} km` }))))));
+    }
+    box.append(el('p', { class: 'note', text: 'Bridges, elevated roadway, and tunnels are not counted.' }));
+  }
+}
+
 function renderTop(r) {
   const box = $('#top');
   const o = OV[S.view];
@@ -272,6 +402,12 @@ function renderLegend() {
     el('div', { class: 'row' }, sw('line', `border-top-color:${t.fema}`), el('span', { text: 'FEMA 100-year zone' })),
     el('div', { class: 'row' }, sw('line dash', `border-top-color:${t.fema}`), el('span', { text: 'FEMA 500-year zone' })),
   ];
+  const sites = [];
+  if (S.show.fac) sites.push(el('div', { class: 'row' }, sw('dia', 'background:#4a3aa7'), el('span', { text: 'Critical facility' })), el('div', { class: 'row' }, sw('dia', 'background:#d03b3b'), el('span', { text: 'Critical facility, flooded' })));
+  if (S.show.shelter) sites.push(el('div', { class: 'row' }, sw('sq', 'background:#008300'), el('span', { text: 'Potential shelter (dry)' })));
+  if (S.show.worship) sites.push(el('div', { class: 'row' }, sw('sq', 'background:#fff;border-color:#008300'), el('span', { text: 'Place of worship (dry)' })));
+  if (S.show.roads) sites.push(el('div', { class: 'row' }, sw('road', ''), el('span', { text: 'Flooded major road' })));
+  if (sites.length) rows.push(el('hr'), ...sites);
   const o = OV[S.view];
   if (o.field) {
     const b = breaksFor(o);
@@ -295,10 +431,12 @@ function renderControls() {
   lowBox.closest('.check').classList.toggle('disabled', S.bay === 0);
   for (const b of $('#rain').children) b.setAttribute('aria-pressed', String(+b.dataset.v === S.rain));
   for (const b of $('#view').children) b.setAttribute('aria-pressed', String(b.dataset.v === S.view));
+  for (const box of document.querySelectorAll('[data-show]')) box.checked = S.show[box.dataset.show];
 }
 
 function syncUrl() {
-  const p = new URLSearchParams({ b: S.bay, r: S.rain, c: S.low ? 1 : 0, v: S.view });
+  const shown = Object.entries(SHOW_KEYS).filter(([, key]) => S.show[key]).map(([ch]) => ch).join('');
+  const p = new URLSearchParams({ b: S.bay, r: S.rain, c: S.low ? 1 : 0, v: S.view, s: shown });
   history.replaceState(null, '', `?${p}`);
 }
 
@@ -308,9 +446,10 @@ function update({ flood = true } = {}) {
   if (!ready) return;
   const r = compute();
   renderSummary(r);
+  renderResponse();
   renderTop(r);
   renderLegend();
-  if (flood) applyFlood();
+  if (flood) { applyFlood(); applyPoints(); applyRoads(); }
   window.__stats = { bay: S.bay, rain: S.rain, low: S.low, people: Math.round(r.people), homes: Math.round(r.homes) };
   document.body.dataset.stats = JSON.stringify(window.__stats);
 }
@@ -375,6 +514,13 @@ function buildControls() {
   $('#bay').addEventListener('input', (e) => { S.bay = +e.target.value; update(); });
   $('#low').addEventListener('change', (e) => { S.low = e.target.checked; update(); });
   $('#rain').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) { S.rain = +b.dataset.v; update(); } });
+  for (const box of document.querySelectorAll('[data-show]')) {
+    box.addEventListener('change', () => {
+      S.show[box.dataset.show] = box.checked;
+      if (ready) { applyShow(); if (box.dataset.show === 'roads' && box.checked) applyRoads(); }
+      update({ flood: false });
+    });
+  }
   view.addEventListener('click', (e) => {
     const b = e.target.closest('button');
     if (!b) return;
@@ -390,7 +536,7 @@ for (const r of REGIONS) $('#regions').append(el('button', { type: 'button', cla
 $('#legend').open = matchMedia('(min-width: 821px)').matches;
 
 map.on('load', async () => {
-  [tracts, scen] = await Promise.all([getJSON('data/tracts.geojson'), getJSON('data/scenarios.json')]);
+  [tracts, scen, points, roadsSummary] = await Promise.all([getJSON('data/tracts.geojson'), getJSON('data/scenarios.json'), getJSON('data/points.json'), getJSON('data/roads_summary.json').catch(() => null)]);
   for (const f of tracts.features) {
     byId.set(f.properties.GEOID, f.properties);
     bboxOf.set(f.properties.GEOID, bboxFromGeometry(f.geometry));
@@ -398,13 +544,27 @@ map.on('load', async () => {
   addFloodLayers();
   ready = true;
   applyShading();
+  applyShow();
   update();
   map.on('click', 'tracts-fill', (e) => {
+    if (map.queryRenderedFeatures(e.point, { layers: POINT_LAYERS }).length) return;
     const id = e.features[0]?.properties.GEOID;
     if (!id) return;
     selectTract(id);
     showPopup(id, e.lngLat);
   });
+  map.on('click', POINT_LAYERS, (e) => {
+    const f = e.features[0], p = f.properties;
+    const flooded = p.m & neededMask();
+    const body = [el('h4', { text: p.n }), el('p', { text: KIND[p.k] })];
+    if (SHELTER_KINDS.includes(p.k) || p.k === 'worship') body.push(el('p', { text: 'Potential shelter site. Not official and not confirmed open.' }));
+    body.push(el('p', { text: flooded ? 'In a flooded area in this scenario.' : 'Not in a flooded area in this scenario.' }));
+    new maplibregl.Popup({ maxWidth: '300px' }).setLngLat(f.geometry.coordinates).setDOMContent(el('div', {}, body)).addTo(map);
+  });
+  for (const id of POINT_LAYERS) {
+    map.on('mouseenter', id, () => { map.getCanvas().style.cursor = 'pointer'; });
+    map.on('mouseleave', id, () => { map.getCanvas().style.cursor = ''; });
+  }
   map.on('mouseenter', 'tracts-fill', () => { map.getCanvas().style.cursor = 'pointer'; });
   map.on('mouseleave', 'tracts-fill', () => { map.getCanvas().style.cursor = ''; });
   document.body.dataset.ready = '1';
