@@ -22,7 +22,8 @@ from rasterio.transform import from_origin
 ROOT = Path(__file__).resolve().parent.parent
 RAW = ROOT / "data" / "raw"
 BUILD = ROOT / "docs" / "data"
-FLOOD = ROOT / "data" / "work" / "flood_full.gpkg"
+WORK = ROOT / "data" / "work"
+FLOOD = WORK / "flood_full.gpkg"
 CRS = 3310
 CELL = 10  # meters
 BAY_LEVELS = [0, 1, 2, 3, 4]
@@ -130,6 +131,7 @@ def main():
     tract_pop = blocks.groupby("tract")["pop"].sum()
     tract_hu = blocks.groupby("tract")["hu"].sum()
     scenarios, summary = {}, []
+    block_keys, block_flooded = [], []
     for b in BAY_LEVELS:
         for r, rain_layer in RAIN.items():
             for c in (0, 1):
@@ -142,6 +144,8 @@ def main():
                 flooded = np.bincount(bid[m], minlength=n)[1:]
                 share = np.divide(flooded, land_cells, out=np.zeros(len(blocks)), where=land_cells > 0)
                 share[tiny] = pm
+                block_keys.append(f"b{b}_r{r}_c{c}")
+                block_flooded.append((blocks["pop"].values * share).astype(np.float32))
                 fp = (blocks["pop"] * share).groupby(blocks.tract).sum()
                 fh = (blocks["hu"] * share).groupby(blocks.tract).sum()
                 ps = (fp / tract_pop.where(tract_pop > 0)).fillna(0)
@@ -154,6 +158,11 @@ def main():
                 nocar = (ind["nocar"].astype(float).reindex(hs.index).fillna(0) * hs).sum()
                 summary.append((key, int(fp.sum()), int(fh.sum()), int(nocar), len(scenarios[key])))
     log(t0, "scenarios computed")
+
+    cent = blocks.geometry.representative_point()
+    WORK.mkdir(parents=True, exist_ok=True)
+    np.savez_compressed(WORK / "block_flood.npz", keys=np.array(block_keys), pop=np.vstack(block_flooded),
+                        x=cent.x.values, y=cent.y.values, tract=np.array(blocks.tract.tolist(), dtype="U6"))
 
     BUILD.mkdir(parents=True, exist_ok=True)
     meta = {

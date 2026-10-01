@@ -274,6 +274,17 @@ Status key: ☐ to do, ⚠ verify availability or licensing first.
    geocoding (Census batch geocoder, free). Overpass was flaky: the area
    query timed out, so downloads use a bounding box and are clipped to the
    county afterward. *(Sonnet)*
+   **Key shelters** (`06_key_shelters.py`, `shelter_reach.json`): for each
+   scenario, flooded residents and flooded residents without a car within
+   1 km and 2 km of each site (block centers, straight-line). Key = dry
+   sites with at least 100 nearby affected residents (no-car residents count
+   twice), top 3 per city; others are faded. The page has a 1 km / 2 km
+   picker and a ranked list. **Rough size tiers** come from site type only
+   (`t` in points.json): larger = high schools and K-12; medium = elementary
+   and middle schools and community centers; smaller = libraries and
+   continuation, alternative, and special-ed schools; varies = places of
+   worship. Possible refinement: school enrollment and OSM building
+   footprints as better capacity proxies (not yet checked for availability).
 6. **Polish and share.** Disclaimers, sources, mobile layout, bundling,
    GitHub Pages if needed. *(Sonnet)*
 

@@ -49,10 +49,14 @@ const KIND_PLURAL = {
   hospital: 'Hospitals', care: 'Nursing and assisted living', dialysis: 'Dialysis centers', fire: 'Fire stations', police: 'Police stations',
   school: 'Schools', community: 'Community centers', library: 'Libraries', worship: 'Places of worship',
 };
+const TIER = { L: 'larger', M: 'medium', S: 'smaller', V: 'size varies' };
+const KEY_MIN = 100;     // affected residents nearby, with residents without a car counted twice
+const KEY_PER_CITY = 3;  // key shelters kept per city
+const LIST_N = 12;
 const FAC_KINDS = ['hospital', 'care', 'dialysis', 'fire', 'police'];
 const SHELTER_KINDS = ['school', 'community', 'library'];
 const SHOW_KEYS = { f: 'fac', s: 'shelter', w: 'worship', r: 'roads' };
-const POINT_LAYERS = ['pts-fac', 'pts-fac-bad', 'pts-shelter', 'pts-worship'];
+const POINT_LAYERS = ['pts-fac', 'pts-fac-bad', 'pts-shelter', 'pts-shelter-key', 'pts-worship', 'pts-worship-key'];
 
 const COUNTY_BOUNDS = [[-122.36, 37.44], [-121.46, 37.92]];
 const REGIONS = [
@@ -74,11 +78,13 @@ const S = {
   view: OV[q.get('v')] ? q.get('v') : 'nocar',
   sel: null,
   show: { fac: true, shelter: true, worship: false, roads: true },
+  dist: q.get('d') === '1' ? 1 : 2,
 };
 if (q.get('s') !== null) for (const [ch, key] of Object.entries(SHOW_KEYS)) S.show[key] = q.get('s').includes(ch);
 function clampInt(v, lo, hi, d) { const n = parseInt(v, 10); return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : d; }
 
-let tracts, scen, points, roadsSummary, ready = false;
+let tracts, scen, points, roadsSummary, shelterReach, ready = false;
+let keyList = [];
 const byId = new Map();
 const bboxOf = new Map();
 const theme = () => THEME;
@@ -187,12 +193,17 @@ function addSiteLayers(before) {
   map.addSource('points', { type: 'geojson', data: EMPTY });
   const size = (a, b, c) => ['interpolate', ['linear'], ['zoom'], 9, a, 12, b, 15, c];
   const kinds = (list) => ['in', ['get', 'k'], ['literal', list]];
-  const sym = (id, icon, filter, sz) => map.addLayer({
+  const sym = (id, icon, filter, sz, opacity = 1) => map.addLayer({
     id, type: 'symbol', source: 'points', filter,
     layout: { 'icon-image': icon, 'icon-size': sz, 'icon-allow-overlap': true, 'icon-ignore-placement': true, visibility: 'none' },
+    paint: { 'icon-opacity': opacity },
   }, before);
-  sym('pts-worship', 'afm-worship', ['all', ['==', ['get', 'k'], 'worship'], ['==', ['get', 'f'], 0]], size(0.4, 0.55, 0.8));
-  sym('pts-shelter', 'afm-shelter', ['all', kinds(SHELTER_KINDS), ['==', ['get', 'f'], 0]], size(0.45, 0.65, 0.95));
+  const dry = (list, key) => ['all', list, ['==', ['get', 'f'], 0], ['==', ['get', 'key'], key]];
+  const worship = ['==', ['get', 'k'], 'worship'];
+  sym('pts-worship', 'afm-worship', dry(worship, 0), size(0.4, 0.55, 0.8), 0.3);
+  sym('pts-shelter', 'afm-shelter', dry(kinds(SHELTER_KINDS), 0), size(0.45, 0.65, 0.95), 0.3);
+  sym('pts-worship-key', 'afm-worship', dry(worship, 1), size(0.7, 0.95, 1.3));
+  sym('pts-shelter-key', 'afm-shelter', dry(kinds(SHELTER_KINDS), 1), size(0.8, 1.05, 1.4));
   sym('pts-fac', 'afm-fac-ok', ['all', kinds(FAC_KINDS), ['==', ['get', 'f'], 0]], size(0.55, 0.8, 1.1));
   sym('pts-fac-bad', 'afm-fac-bad', ['all', kinds(FAC_KINDS), ['==', ['get', 'f'], 1]], size(0.85, 1.15, 1.5));
 }
@@ -201,8 +212,8 @@ function applyShow() {
   const vis = (on) => (on ? 'visible' : 'none');
   map.setLayoutProperty('pts-fac', 'visibility', vis(S.show.fac));
   map.setLayoutProperty('pts-fac-bad', 'visibility', vis(S.show.fac));
-  map.setLayoutProperty('pts-shelter', 'visibility', vis(S.show.shelter));
-  map.setLayoutProperty('pts-worship', 'visibility', vis(S.show.worship));
+  for (const id of ['pts-shelter', 'pts-shelter-key']) map.setLayoutProperty(id, 'visibility', vis(S.show.shelter));
+  for (const id of ['pts-worship', 'pts-worship-key']) map.setLayoutProperty(id, 'visibility', vis(S.show.worship));
   map.setLayoutProperty('roads-casing', 'visibility', vis(S.show.roads));
   map.setLayoutProperty('roads-line', 'visibility', vis(S.show.roads));
 }
@@ -218,9 +229,32 @@ function neededMask() {
   return m;
 }
 
+function computeKeys() {
+  const reach = shelterReach?.[scenarioKey()];
+  if (!reach) return [];
+  const m = neededMask();
+  const kinds = [...(S.show.shelter ? SHELTER_KINDS : []), ...(S.show.worship ? ['worship'] : [])];
+  const i = S.dist === 1 ? 0 : 2;
+  const cand = [];
+  for (const f of points.features) {
+    const p = f.properties, e = reach[p.id];
+    if (!e || !kinds.includes(p.k) || p.m & m) continue;
+    const score = e[i] + e[i + 1];
+    if (score >= KEY_MIN) cand.push({ p, coords: f.geometry.coordinates, people: e[i], nocar: e[i + 1], score });
+  }
+  cand.sort((a, b) => b.score - a.score);
+  const perCity = {};
+  return cand.filter((c) => (perCity[c.p.c] = (perCity[c.p.c] || 0) + 1) <= KEY_PER_CITY);
+}
+
 function applyPoints() {
   const m = neededMask();
-  for (const f of points.features) f.properties.f = f.properties.m & m ? 1 : 0;
+  keyList = computeKeys();
+  const keyIds = new Set(keyList.map((k) => k.p.id));
+  for (const f of points.features) {
+    f.properties.f = f.properties.m & m ? 1 : 0;
+    f.properties.key = keyIds.has(f.properties.id) ? 1 : 0;
+  }
   map.getSource('points').setData(points);
 }
 
@@ -360,6 +394,24 @@ function renderResponse() {
       by.worship ? el('tr', {}, el('td', { text: 'Places of worship (lower confidence)' }), el('td', { class: 'num', text: `${by.worship.n - by.worship.hit} of ${by.worship.n}` })) : null)));
   box.append(el('p', { class: 'note', text: 'Potential shelters are not official and not confirmed open. They are public schools, community centers, libraries, and places of worship that are not in the flooded area in this scenario.' }));
 
+  box.append(el('h3', { class: 'sub-h', text: `Key shelters: near affected residents (within ${S.dist} km)` }));
+  if (!S.show.shelter && !S.show.worship) box.append(el('p', { class: 'empty', text: 'Turn on potential shelters above to see key shelters.' }));
+  else if (!keyList.length) box.append(el('p', { class: 'empty', text: `No dry sites have ${KEY_MIN} or more affected residents within ${S.dist} km in this scenario.` }));
+  else {
+    const cities = new Set(keyList.map((k) => k.p.c)).size;
+    box.append(el('p', { class: 'note', text: `${keyList.length} site${keyList.length === 1 ? '' : 's'} in ${cities} cit${cities === 1 ? 'y' : 'ies'}, up to ${KEY_PER_CITY} per city, ranked by affected residents nearby (residents without a car count twice). Other sites are faded on the map.` }));
+    const ol = el('ol', { class: 'toplist' });
+    for (const k of keyList.slice(0, LIST_N)) {
+      ol.append(el('li', {}, el('button', { type: 'button', onclick: () => focusSite(k) },
+        el('span', {}, el('div', { class: 'place', text: k.p.n }), el('div', { class: 'sub2', text: `${k.p.c} · ${KIND[k.p.k]} · ${TIER[k.p.t] || ''}` })),
+        el('span', { class: 'n', title: `${nf.format(k.nocar)} without a car (estimated)`, text: approx(k.people) }),
+      )));
+    }
+    box.append(ol);
+    if (keyList.length > LIST_N) box.append(el('p', { class: 'note', text: `Showing the top ${LIST_N}. All ${keyList.length} are highlighted on the map.` }));
+  }
+  box.append(el('p', { class: 'note', text: 'Size is a rough guess from the type of site (high schools larger than elementary schools, schools larger than libraries), not a measured capacity. Distances are straight-line and ignore water and flooded roads. Sites are not confirmed as shelters.' }));
+
   const rs = roadsSummary?.[scenarioKey()];
   if (rs) {
     box.append(el('h3', { class: 'sub-h', text: 'Major roads under water' }));
@@ -404,8 +456,8 @@ function renderLegend() {
   ];
   const sites = [];
   if (S.show.fac) sites.push(el('div', { class: 'row' }, sw('dia', 'background:#4a3aa7'), el('span', { text: 'Critical facility' })), el('div', { class: 'row' }, sw('dia', 'background:#d03b3b'), el('span', { text: 'Critical facility, flooded' })));
-  if (S.show.shelter) sites.push(el('div', { class: 'row' }, sw('sq', 'background:#008300'), el('span', { text: 'Potential shelter (dry)' })));
-  if (S.show.worship) sites.push(el('div', { class: 'row' }, sw('sq', 'background:#fff;border-color:#008300'), el('span', { text: 'Place of worship (dry)' })));
+  if (S.show.shelter) sites.push(el('div', { class: 'row' }, sw('sq', 'background:#008300'), el('span', { text: 'Key shelter (dry)' })), el('div', { class: 'row' }, sw('sq', 'background:#008300;opacity:0.3'), el('span', { text: 'Other potential shelter' })));
+  if (S.show.worship) sites.push(el('div', { class: 'row' }, sw('sq', 'background:#fff;border-color:#008300'), el('span', { text: 'Place of worship (dry; faded if not key)' })));
   if (S.show.roads) sites.push(el('div', { class: 'row' }, sw('road', ''), el('span', { text: 'Flooded major road' })));
   if (sites.length) rows.push(el('hr'), ...sites);
   const o = OV[S.view];
@@ -432,24 +484,26 @@ function renderControls() {
   for (const b of $('#rain').children) b.setAttribute('aria-pressed', String(+b.dataset.v === S.rain));
   for (const b of $('#view').children) b.setAttribute('aria-pressed', String(b.dataset.v === S.view));
   for (const box of document.querySelectorAll('[data-show]')) box.checked = S.show[box.dataset.show];
+  for (const b of $('#dist').children) b.setAttribute('aria-pressed', String(+b.dataset.v === S.dist));
 }
 
 function syncUrl() {
   const shown = Object.entries(SHOW_KEYS).filter(([, key]) => S.show[key]).map(([ch]) => ch).join('');
-  const p = new URLSearchParams({ b: S.bay, r: S.rain, c: S.low ? 1 : 0, v: S.view, s: shown });
+  const p = new URLSearchParams({ b: S.bay, r: S.rain, c: S.low ? 1 : 0, v: S.view, s: shown, d: S.dist });
   history.replaceState(null, '', `?${p}`);
 }
 
-function update({ flood = true } = {}) {
+function update({ flood = true, pts = true } = {}) {
   renderControls();
   syncUrl();
   if (!ready) return;
   const r = compute();
+  if (pts) applyPoints();
   renderSummary(r);
   renderResponse();
   renderTop(r);
   renderLegend();
-  if (flood) { applyFlood(); applyPoints(); applyRoads(); }
+  if (flood) { applyFlood(); applyRoads(); }
   window.__stats = { bay: S.bay, rain: S.rain, low: S.low, people: Math.round(r.people), homes: Math.round(r.homes) };
   document.body.dataset.stats = JSON.stringify(window.__stats);
 }
@@ -498,6 +552,27 @@ function showPopup(id, lngLat) {
   new maplibregl.Popup({ maxWidth: '300px' }).setLngLat(lngLat).setDOMContent(el('div', {}, body)).addTo(map);
 }
 
+function showSitePopup(p, coords) {
+  const flooded = p.m & neededMask();
+  const body = [el('h4', { text: p.n }), el('p', { text: `${KIND[p.k]}${p.c ? ` · ${p.c}` : ''}` })];
+  if (SHELTER_KINDS.includes(p.k) || p.k === 'worship') {
+    body.push(el('p', { text: 'Potential shelter site. Not official and not confirmed open.' }));
+    if (p.t) body.push(el('p', { text: `Rough size: ${TIER[p.t]} (guessed from the type of site).` }));
+  }
+  body.push(el('p', { text: flooded ? 'In a flooded area in this scenario.' : 'Not in a flooded area in this scenario.' }));
+  const e = !flooded && shelterReach?.[scenarioKey()]?.[p.id];
+  if (e) {
+    const i = S.dist === 1 ? 0 : 2;
+    body.push(el('p', { text: `About ${approx(e[i])} affected residents within ${S.dist} km (${approx(e[i + 1])} without a car).` }));
+  }
+  new maplibregl.Popup({ maxWidth: '300px' }).setLngLat(coords).setDOMContent(el('div', {}, body)).addTo(map);
+}
+
+function focusSite(k) {
+  map.flyTo({ center: k.coords, zoom: Math.max(map.getZoom(), 13.5) });
+  map.once('moveend', () => showSitePopup(k.p, k.coords));
+}
+
 function focusTract(id) {
   selectTract(id);
   const bb = bboxOf.get(id);
@@ -514,6 +589,7 @@ function buildControls() {
   $('#bay').addEventListener('input', (e) => { S.bay = +e.target.value; update(); });
   $('#low').addEventListener('change', (e) => { S.low = e.target.checked; update(); });
   $('#rain').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) { S.rain = +b.dataset.v; update(); } });
+  $('#dist').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) { S.dist = +b.dataset.v; update({ flood: false }); } });
   for (const box of document.querySelectorAll('[data-show]')) {
     box.addEventListener('change', () => {
       S.show[box.dataset.show] = box.checked;
@@ -526,7 +602,7 @@ function buildControls() {
     if (!b) return;
     S.view = b.dataset.v;
     if (ready) applyShading();
-    update({ flood: false });
+    update({ flood: false, pts: false });
   });
 }
 
@@ -536,7 +612,7 @@ for (const r of REGIONS) $('#regions').append(el('button', { type: 'button', cla
 $('#legend').open = matchMedia('(min-width: 821px)').matches;
 
 map.on('load', async () => {
-  [tracts, scen, points, roadsSummary] = await Promise.all([getJSON('data/tracts.geojson'), getJSON('data/scenarios.json'), getJSON('data/points.json'), getJSON('data/roads_summary.json').catch(() => null)]);
+  [tracts, scen, points, roadsSummary, shelterReach] = await Promise.all([getJSON('data/tracts.geojson'), getJSON('data/scenarios.json'), getJSON('data/points.json'), getJSON('data/roads_summary.json').catch(() => null), getJSON('data/shelter_reach.json').catch(() => null)]);
   for (const f of tracts.features) {
     byId.set(f.properties.GEOID, f.properties);
     bboxOf.set(f.properties.GEOID, bboxFromGeometry(f.geometry));
@@ -553,14 +629,7 @@ map.on('load', async () => {
     selectTract(id);
     showPopup(id, e.lngLat);
   });
-  map.on('click', POINT_LAYERS, (e) => {
-    const f = e.features[0], p = f.properties;
-    const flooded = p.m & neededMask();
-    const body = [el('h4', { text: p.n }), el('p', { text: KIND[p.k] })];
-    if (SHELTER_KINDS.includes(p.k) || p.k === 'worship') body.push(el('p', { text: 'Potential shelter site. Not official and not confirmed open.' }));
-    body.push(el('p', { text: flooded ? 'In a flooded area in this scenario.' : 'Not in a flooded area in this scenario.' }));
-    new maplibregl.Popup({ maxWidth: '300px' }).setLngLat(f.geometry.coordinates).setDOMContent(el('div', {}, body)).addTo(map);
-  });
+  map.on('click', POINT_LAYERS, (e) => showSitePopup(e.features[0].properties, e.features[0].geometry.coordinates));
   for (const id of POINT_LAYERS) {
     map.on('mouseenter', id, () => { map.getCanvas().style.cursor = 'pointer'; });
     map.on('mouseleave', id, () => { map.getCanvas().style.cursor = ''; });

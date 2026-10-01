@@ -15,7 +15,8 @@ import shapely
 ROOT = Path(__file__).resolve().parent.parent
 RAW = ROOT / "data" / "raw"
 FLOOD = ROOT / "data" / "work" / "flood_full.gpkg"
-OUT = ROOT / "docs" / "data" / "points.json"
+DOCS = ROOT / "docs" / "data"
+OUT = DOCS / "points.json"
 CRS = 3310
 LAYERS = [f"bay_{i}ft" for i in range(1, 5)] + [f"low_{i}ft" for i in range(1, 5)] + ["fema_100yr", "fema_500yr"]
 
@@ -24,6 +25,13 @@ SCHOOL_TYPES = {
     "K-12 Schools (Public)", "Continuation High Schools", "Alternative Schools of Choice",
     "Special Education Schools (Public)",
 }
+# Rough relative size of a site as a shelter: L larger, M medium, S smaller, V varies widely.
+SCHOOL_TIER = {
+    "High Schools (Public)": "L", "K-12 Schools (Public)": "L",
+    "Elementary Schools (Public)": "M", "Intermediate/Middle Schools (Public)": "M",
+    "Continuation High Schools": "S", "Alternative Schools of Choice": "S", "Special Education Schools (Public)": "S",
+}
+TIER_BY_KIND = {"community": "M", "library": "S", "worship": "V"}
 DEFAULT_NAME = {
     "hospital": "Hospital", "care": "Care facility", "dialysis": "Dialysis center", "fire": "Fire station",
     "police": "Police station", "school": "School", "community": "Community center", "library": "Library",
@@ -44,7 +52,7 @@ def osm_points(path, classify):
         tags = e.get("tags", {})
         kind = classify(tags)
         if kind:
-            rows.append((kind, tags.get("name") or DEFAULT_NAME[kind], lon, lat))
+            rows.append((kind, tags.get("name") or DEFAULT_NAME[kind], lon, lat, None))
     return rows
 
 
@@ -67,7 +75,7 @@ def schools():
     s = pd.read_csv(RAW / "schools" / "pubschls.txt", sep="\t", dtype=str, encoding="latin1")
     s = s[(s.County == "Alameda") & (s.StatusType == "Active") & s.SOCType.isin(SCHOOL_TYPES) & (s.School != "No Data")]
     s = s.dropna(subset=["Latitude", "Longitude"])
-    return [("school", r.School, float(r.Longitude), float(r.Latitude)) for r in s.itertuples()]
+    return [("school", r.School, float(r.Longitude), float(r.Latitude), SCHOOL_TIER[r.SOCType]) for r in s.itertuples()]
 
 
 def dedupe(df, tol_m=250):
@@ -87,7 +95,8 @@ def main():
         print("WARNING: facilities.json missing; run 01_download.py osm_facilities. Hospitals and care homes skipped.")
     rows = (osm_points(RAW / "osm" / "amenities.json", classify_amenity)
             + (osm_points(fac, classify_facility) if fac.exists() else []) + schools())
-    df = pd.DataFrame(rows, columns=["k", "n", "lon", "lat"])
+    df = pd.DataFrame(rows, columns=["k", "n", "lon", "lat", "t"])
+    df["t"] = df["t"].fillna(df["k"].map(TIER_BY_KIND))
     g = gpd.GeoDataFrame(df, geometry=gpd.points_from_xy(df.lon, df.lat), crs=4326).to_crs(CRS)
     g["x"], g["y"] = g.geometry.x, g.geometry.y
     land = county_land().buffer(300)
@@ -96,6 +105,10 @@ def main():
     before = len(g)
     g = dedupe(g).reset_index(drop=True)
     print(f"{before} points, {before - len(g)} duplicates removed")
+
+    tr = gpd.read_file(DOCS / "tracts.geojson")[["place", "geometry"]].to_crs(CRS)
+    near = gpd.sjoin_nearest(g[["geometry"]], tr, how="left", max_distance=3000)
+    g["c"] = near["place"].groupby(level=0).first().reindex(g.index).fillna("Unincorporated")
 
     mask = np.zeros(len(g), dtype=int)
     for bit, name in enumerate(LAYERS):
@@ -107,7 +120,8 @@ def main():
 
     out = g.to_crs(4326)
     feats = [{"type": "Feature", "geometry": {"type": "Point", "coordinates": [round(p.x, 5), round(p.y, 5)]},
-              "properties": {"k": r.k, "n": r.n, "m": int(r.m)}} for r, p in zip(g.itertuples(), out.geometry)]
+              "properties": {"id": int(r.Index), "k": r.k, "n": r.n, "m": int(r.m), "c": r.c, **({"t": r.t} if isinstance(r.t, str) else {})}}
+             for r, p in zip(g.itertuples(), out.geometry)]
     OUT.write_text(json.dumps({"type": "FeatureCollection", "features": feats}, separators=(",", ":"), ensure_ascii=False))
     print(f"wrote {OUT.relative_to(ROOT)} ({OUT.stat().st_size / 1e3:.0f} KB)\n")
 
