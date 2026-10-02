@@ -285,6 +285,22 @@ Status key: ☐ to do, ⚠ verify availability or licensing first.
    continuation, alternative, and special-ed schools; varies = places of
    worship. Possible refinement: school enrollment and OSM building
    footprints as better capacity proxies (not yet checked for availability).
+   **Pre-identified shelters** (`07_geocode_shelters.py`): 75 sites from a
+   list supplied privately (kept in gitignored `data/raw/shelters/`; do not
+   name the source in public files). Located by matching our point data,
+   OpenStreetMap search, and Census-geocoded addresses
+   (`data/raw/shelters/overrides.csv`). Shown with a house marker, red when
+   flooded, with their own panel section. Run order: `04` → `07` → `04` →
+   `06` → `08`.
+   **Site size** (`08_footprints.py`, `site_size.json`): main building of
+   each shelter site from OSM building outlines (campus outline, else the
+   containing or nearest building; a gym if one is tagged and big enough).
+   About 20% of sites are unreliable (host buildings like a library in a
+   mall, missed gyms, no match), so they are flagged, and sizes are shown
+   only as larger / typical / smaller than other sites of the same type,
+   never as people counts. **Assumed capacity per site type** goes in
+   `docs/data/capacity.json` (all null until provided); the page shows it
+   automatically once filled in.
 6. **Polish and share.** Disclaimers, sources, mobile layout, bundling,
    GitHub Pages if needed. *(Sonnet)*
 

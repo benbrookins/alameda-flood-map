@@ -43,20 +43,25 @@ const TABLE_ROWS = OVERLAYS.filter((o) => o.count);
 
 const KIND = {
   hospital: 'Hospital', care: 'Nursing or assisted living', dialysis: 'Dialysis center', fire: 'Fire station', police: 'Police station',
-  school: 'School', community: 'Community center', library: 'Library', worship: 'Place of worship',
+  school: 'School', community: 'Community center', library: 'Library', worship: 'Place of worship', pre: 'Pre-identified shelter',
 };
 const KIND_PLURAL = {
   hospital: 'Hospitals', care: 'Nursing and assisted living', dialysis: 'Dialysis centers', fire: 'Fire stations', police: 'Police stations',
-  school: 'Schools', community: 'Community centers', library: 'Libraries', worship: 'Places of worship',
+  school: 'Schools', community: 'Community centers', library: 'Libraries', worship: 'Places of worship', pre: 'Pre-identified shelters',
 };
-const TIER = { L: 'larger', M: 'medium', S: 'smaller', V: 'size varies' };
+const BUCKET = {
+  college: 'College or university', high_school: 'High school', middle_school: 'Middle school', elementary_school: 'Elementary school',
+  small_school: 'Small or alternative school', community_center: 'Community or recreation center', senior_center: 'Senior center',
+  library: 'Library', worship: 'Place of worship',
+};
+const REL = { L: 'larger than typical', T: 'typical size', S: 'smaller than typical' };
 const KEY_MIN = 100;     // affected residents nearby, with residents without a car counted twice
 const KEY_PER_CITY = 3;  // key shelters kept per city
 const LIST_N = 12;
 const FAC_KINDS = ['hospital', 'care', 'dialysis', 'fire', 'police'];
 const SHELTER_KINDS = ['school', 'community', 'library'];
-const SHOW_KEYS = { f: 'fac', s: 'shelter', w: 'worship', r: 'roads' };
-const POINT_LAYERS = ['pts-fac', 'pts-fac-bad', 'pts-shelter', 'pts-shelter-key', 'pts-worship', 'pts-worship-key'];
+const SHOW_KEYS = { p: 'pre', f: 'fac', s: 'shelter', w: 'worship', r: 'roads' };
+const POINT_LAYERS = ['pts-fac', 'pts-fac-bad', 'pts-shelter', 'pts-shelter-key', 'pts-worship', 'pts-worship-key', 'pts-pre', 'pts-pre-bad'];
 
 const COUNTY_BOUNDS = [[-122.36, 37.44], [-121.46, 37.92]];
 const REGIONS = [
@@ -77,13 +82,13 @@ const S = {
   low: q.get('c') === '1',
   view: OV[q.get('v')] ? q.get('v') : 'nocar',
   sel: null,
-  show: { fac: true, shelter: true, worship: false, roads: true },
+  show: { pre: true, fac: true, shelter: true, worship: false, roads: true },
   dist: q.get('d') === '1' ? 1 : 2,
 };
 if (q.get('s') !== null) for (const [ch, key] of Object.entries(SHOW_KEYS)) S.show[key] = q.get('s').includes(ch);
 function clampInt(v, lo, hi, d) { const n = parseInt(v, 10); return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : d; }
 
-let tracts, scen, points, roadsSummary, shelterReach, ready = false;
+let tracts, scen, points, roadsSummary, shelterReach, siteSize, capacity, ready = false;
 let keyList = [];
 const byId = new Map();
 const bboxOf = new Map();
@@ -172,7 +177,9 @@ function makeIcon(shape, fill, edge, lineWidth) {
   const g = c.getContext('2d');
   g.lineJoin = 'round';
   g.beginPath();
-  if (shape === 'diamond') { g.moveTo(16, 2); g.lineTo(30, 16); g.lineTo(16, 30); g.lineTo(2, 16); g.closePath(); } else g.rect(6, 6, 20, 20);
+  if (shape === 'diamond') { g.moveTo(16, 2); g.lineTo(30, 16); g.lineTo(16, 30); g.lineTo(2, 16); g.closePath(); }
+  else if (shape === 'house') { g.moveTo(16, 3); g.lineTo(29, 14); g.lineTo(29, 29); g.lineTo(3, 29); g.lineTo(3, 14); g.closePath(); }
+  else g.rect(6, 6, 20, 20);
   g.lineWidth = lineWidth; g.strokeStyle = edge; g.stroke();
   g.fillStyle = fill; g.fill();
   return g.getImageData(0, 0, size, size);
@@ -184,6 +191,8 @@ function addSiteLayers(before) {
   map.addImage('afm-fac-bad', makeIcon('diamond', '#d03b3b', '#ffffff', 5), opt);
   map.addImage('afm-shelter', makeIcon('square', '#008300', '#ffffff', 5), opt);
   map.addImage('afm-worship', makeIcon('square', '#ffffff', '#008300', 5), opt);
+  map.addImage('afm-pre', makeIcon('house', '#006b2e', '#ffffff', 5), opt);
+  map.addImage('afm-pre-bad', makeIcon('house', '#d03b3b', '#ffffff', 5), opt);
 
   map.addSource('roads', { type: 'geojson', data: EMPTY });
   const width = (extra) => ['interpolate', ['linear'], ['zoom'], 9, ['match', ['get', 'h'], 'fwy', 2 + extra, 'art', 1.4 + extra, 1 + extra], 14, ['match', ['get', 'h'], 'fwy', 6 + extra, 'art', 4.5 + extra, 3.5 + extra]];
@@ -204,6 +213,8 @@ function addSiteLayers(before) {
   sym('pts-shelter', 'afm-shelter', dry(kinds(SHELTER_KINDS), 0), size(0.45, 0.65, 0.95), 0.3);
   sym('pts-worship-key', 'afm-worship', dry(worship, 1), size(0.7, 0.95, 1.3));
   sym('pts-shelter-key', 'afm-shelter', dry(kinds(SHELTER_KINDS), 1), size(0.8, 1.05, 1.4));
+  sym('pts-pre', 'afm-pre', ['all', ['==', ['get', 'k'], 'pre'], ['==', ['get', 'f'], 0]], size(0.8, 1.05, 1.4));
+  sym('pts-pre-bad', 'afm-pre-bad', ['all', ['==', ['get', 'k'], 'pre'], ['==', ['get', 'f'], 1]], size(0.85, 1.1, 1.45));
   sym('pts-fac', 'afm-fac-ok', ['all', kinds(FAC_KINDS), ['==', ['get', 'f'], 0]], size(0.55, 0.8, 1.1));
   sym('pts-fac-bad', 'afm-fac-bad', ['all', kinds(FAC_KINDS), ['==', ['get', 'f'], 1]], size(0.85, 1.15, 1.5));
 }
@@ -214,6 +225,7 @@ function applyShow() {
   map.setLayoutProperty('pts-fac-bad', 'visibility', vis(S.show.fac));
   for (const id of ['pts-shelter', 'pts-shelter-key']) map.setLayoutProperty(id, 'visibility', vis(S.show.shelter));
   for (const id of ['pts-worship', 'pts-worship-key']) map.setLayoutProperty(id, 'visibility', vis(S.show.worship));
+  for (const id of ['pts-pre', 'pts-pre-bad']) map.setLayoutProperty(id, 'visibility', vis(S.show.pre));
   map.setLayoutProperty('roads-casing', 'visibility', vis(S.show.roads));
   map.setLayoutProperty('roads-line', 'visibility', vis(S.show.roads));
 }
@@ -227,6 +239,18 @@ function neededMask() {
   if (S.rain >= 100) m |= 256;
   if (S.rain >= 500) m |= 512;
   return m;
+}
+
+function sizeNote(p) {
+  const s = siteSize?.[p.id];
+  return s && REL[s[1]] ? REL[s[1]] : '';
+}
+function capacityOf(p) {
+  const v = capacity?.buckets?.[p.b];
+  return typeof v === 'number' ? v : null;
+}
+function siteLine(p) {
+  return [p.c, p.k === 'pre' ? null : KIND[p.k], BUCKET[p.b], sizeNote(p)].filter(Boolean).join(' · ');
 }
 
 function computeKeys() {
@@ -376,7 +400,7 @@ function renderResponse() {
     const p = f.properties;
     const a = (by[p.k] ||= { n: 0, hit: 0, names: [] });
     a.n++;
-    if (p.m & m) { a.hit++; if (FAC_KINDS.includes(p.k)) a.names.push(`${p.n} (${KIND[p.k].toLowerCase()})`); }
+    if (p.m & m) { a.hit++; if (FAC_KINDS.includes(p.k)) a.names.push(`${p.n} (${KIND[p.k].toLowerCase()})`); else if (p.k === 'pre') a.names.push(p.n); }
   }
   const rows = (kinds, text) => kinds.filter((k) => by[k]).map((k) => el('tr', {},
     el('td', { text: KIND_PLURAL[k] }), el('td', { class: 'num', text: text(by[k]) })));
@@ -388,6 +412,29 @@ function renderResponse() {
     box.append(el('p', { class: 'note', text: `Flooded: ${names.slice(0, 8).join('; ')}${names.length > 8 ? `; and ${names.length - 8} more` : ''}.` }));
   }
   box.append(el('p', { class: 'note', text: 'Facility locations come from OpenStreetMap and are incomplete, especially for nursing and assisted living homes and dialysis centers.' }));
+
+  if (by.pre) {
+    const pre = by.pre;
+    box.append(el('h3', { class: 'sub-h', text: 'Pre-identified shelters' }),
+      el('p', { class: 'note', text: `${pre.n - pre.hit} of ${pre.n} are outside the flooded area in this scenario.` }));
+    if (pre.names.length) box.append(el('p', { class: 'warn-note', text: `In a flooded area: ${pre.names.join('; ')}.` }));
+    const reach = shelterReach?.[scenarioKey()] || {};
+    const i = S.dist === 1 ? 0 : 2;
+    const ranked = points.features.map((f) => ({ p: f.properties, coords: f.geometry.coordinates }))
+      .filter(({ p }) => p.k === 'pre' && !(p.m & m) && reach[p.id]?.[i] > 0)
+      .map((x) => ({ ...x, people: reach[x.p.id][i] })).sort((a, b) => b.people - a.people).slice(0, 8);
+    if (ranked.length) {
+      box.append(el('p', { class: 'note', text: `Closest to affected residents (within ${S.dist} km):` }));
+      const ol = el('ol', { class: 'toplist' });
+      for (const k of ranked) {
+        const cap = capacityOf(k.p);
+        ol.append(el('li', {}, el('button', { type: 'button', onclick: () => focusSite(k) },
+          el('span', {}, el('div', { class: 'place', text: k.p.n }), el('div', { class: 'sub2', text: siteLine(k.p) + (cap ? ` · room for ~${nf.format(cap)} (assumed)` : '') })),
+          el('span', { class: 'n', title: 'Affected residents nearby', text: approx(k.people) }))));
+      }
+      box.append(ol);
+    }
+  }
 
   box.append(el('h3', { class: 'sub-h', text: 'Potential shelters that stay dry' }),
     el('table', {}, el('tbody', {}, rows(SHELTER_KINDS, (a) => `${a.n - a.hit} of ${a.n}`),
@@ -403,14 +450,14 @@ function renderResponse() {
     const ol = el('ol', { class: 'toplist' });
     for (const k of keyList.slice(0, LIST_N)) {
       ol.append(el('li', {}, el('button', { type: 'button', onclick: () => focusSite(k) },
-        el('span', {}, el('div', { class: 'place', text: k.p.n }), el('div', { class: 'sub2', text: `${k.p.c} · ${KIND[k.p.k]} · ${TIER[k.p.t] || ''}` })),
+        el('span', {}, el('div', { class: 'place', text: k.p.n }), el('div', { class: 'sub2', text: siteLine(k.p) + (capacityOf(k.p) ? ` · room for ~${nf.format(capacityOf(k.p))} (assumed)` : '') })),
         el('span', { class: 'n', title: `${nf.format(k.nocar)} without a car (estimated)`, text: approx(k.people) }),
       )));
     }
     box.append(ol);
     if (keyList.length > LIST_N) box.append(el('p', { class: 'note', text: `Showing the top ${LIST_N}. All ${keyList.length} are highlighted on the map.` }));
   }
-  box.append(el('p', { class: 'note', text: 'Size is a rough guess from the type of site (high schools larger than elementary schools, schools larger than libraries), not a measured capacity. Distances are straight-line and ignore water and flooded roads. Sites are not confirmed as shelters.' }));
+  box.append(el('p', { class: 'note', text: 'Size compares each site\'s main building, from map building outlines, with other sites of the same type; it is not a measured capacity. Distances are straight-line and ignore water and flooded roads. Sites are not confirmed as shelters.' }));
 
   const rs = roadsSummary?.[scenarioKey()];
   if (rs) {
@@ -456,6 +503,7 @@ function renderLegend() {
   ];
   const sites = [];
   if (S.show.fac) sites.push(el('div', { class: 'row' }, sw('dia', 'background:#4a3aa7'), el('span', { text: 'Critical facility' })), el('div', { class: 'row' }, sw('dia', 'background:#d03b3b'), el('span', { text: 'Critical facility, flooded' })));
+  if (S.show.pre) sites.push(el('div', { class: 'row' }, sw('house', 'background:#006b2e'), el('span', { text: 'Pre-identified shelter' })), el('div', { class: 'row' }, sw('house', 'background:#d03b3b'), el('span', { text: 'Pre-identified shelter, flooded' })));
   if (S.show.shelter) sites.push(el('div', { class: 'row' }, sw('sq', 'background:#008300'), el('span', { text: 'Key shelter (dry)' })), el('div', { class: 'row' }, sw('sq', 'background:#008300;opacity:0.3'), el('span', { text: 'Other potential shelter' })));
   if (S.show.worship) sites.push(el('div', { class: 'row' }, sw('sq', 'background:#fff;border-color:#008300'), el('span', { text: 'Place of worship (dry; faded if not key)' })));
   if (S.show.roads) sites.push(el('div', { class: 'row' }, sw('road', ''), el('span', { text: 'Flooded major road' })));
@@ -555,11 +603,16 @@ function showPopup(id, lngLat) {
 function showSitePopup(p, coords) {
   const flooded = p.m & neededMask();
   const body = [el('h4', { text: p.n }), el('p', { text: `${KIND[p.k]}${p.c ? ` · ${p.c}` : ''}` })];
-  if (SHELTER_KINDS.includes(p.k) || p.k === 'worship') {
-    body.push(el('p', { text: 'Potential shelter site. Not official and not confirmed open.' }));
-    if (p.t) body.push(el('p', { text: `Rough size: ${TIER[p.t]} (guessed from the type of site).` }));
+  if (p.k === 'pre') body.push(el('p', { text: 'Identified in advance as a possible emergency shelter. Whether it opens depends on the emergency.' }));
+  else if (SHELTER_KINDS.includes(p.k) || p.k === 'worship') body.push(el('p', { text: 'Potential shelter site. Not official and not confirmed open.' }));
+  if (p.b) {
+    const s = siteSize?.[p.id];
+    const size = s && REL[s[1]] ? ` Main building about ${nf.format(s[0])} sq ft, ${REL[s[1]]} for this type (from map building outlines).` : '';
+    body.push(el('p', { text: `Type: ${BUCKET[p.b]}.${size}` }));
+    const cap = capacityOf(p);
+    if (cap) body.push(el('p', { text: `Assumed capacity for this type: about ${nf.format(cap)} people.` }));
   }
-  body.push(el('p', { text: flooded ? 'In a flooded area in this scenario.' : 'Not in a flooded area in this scenario.' }));
+  body.push(el('p', { class: flooded ? 'warn' : '', text: flooded ? 'In a flooded area in this scenario.' : 'Not in a flooded area in this scenario.' }));
   const e = !flooded && shelterReach?.[scenarioKey()]?.[p.id];
   if (e) {
     const i = S.dist === 1 ? 0 : 2;
@@ -612,7 +665,7 @@ for (const r of REGIONS) $('#regions').append(el('button', { type: 'button', cla
 $('#legend').open = matchMedia('(min-width: 821px)').matches;
 
 map.on('load', async () => {
-  [tracts, scen, points, roadsSummary, shelterReach] = await Promise.all([getJSON('data/tracts.geojson'), getJSON('data/scenarios.json'), getJSON('data/points.json'), getJSON('data/roads_summary.json').catch(() => null), getJSON('data/shelter_reach.json').catch(() => null)]);
+  [tracts, scen, points, roadsSummary, shelterReach, siteSize, capacity] = await Promise.all([getJSON('data/tracts.geojson'), getJSON('data/scenarios.json'), getJSON('data/points.json'), getJSON('data/roads_summary.json').catch(() => null), getJSON('data/shelter_reach.json').catch(() => null), getJSON('data/site_size.json').catch(() => ({})), getJSON('data/capacity.json').catch(() => null)]);
   for (const f of tracts.features) {
     byId.set(f.properties.GEOID, f.properties);
     bboxOf.set(f.properties.GEOID, bboxFromGeometry(f.geometry));

@@ -15,7 +15,7 @@ import numpy as np
 ROOT = Path(__file__).resolve().parent.parent
 WORK = ROOT / "data" / "work"
 DOCS = ROOT / "docs" / "data"
-SHELTER_KINDS = {"school", "community", "library", "worship"}
+SHELTER_KINDS = {"pre", "school", "community", "library", "worship"}
 RADII = (1000, 2000)
 MIN_STORE = 50
 

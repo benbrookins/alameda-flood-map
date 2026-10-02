@@ -1,0 +1,14 @@
+{
+  "note": "Assumed number of people a site of each type can shelter. null = not yet provided.",
+  "buckets": {
+    "college": null,
+    "high_school": null,
+    "middle_school": null,
+    "elementary_school": null,
+    "small_school": null,
+    "community_center": null,
+    "senior_center": null,
+    "library": null,
+    "worship": null
+  }
+}
