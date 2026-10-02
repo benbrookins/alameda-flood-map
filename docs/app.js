@@ -430,7 +430,7 @@ function renderResponse(r) {
       el('p', { class: 'note', text: `${pre.n - pre.hit} of ${pre.n} are outside the flooded area in this scenario.` }));
     let dryCap = 0;
     for (const f of points.features) if (f.properties.k === 'pre' && !(f.properties.m & m)) dryCap += capacity?.sites?.[f.properties.id]?.[0] || 0;
-    if (dryCap) box.append(el('p', { class: 'note', text: `Together they can shelter about ${nf.format(dryCap)} people overnight (surveyed), compared with ${approx(r.people)} people living in flooded areas.` }));
+    if (dryCap) box.append(el('p', { class: 'note', text: `Together they can shelter about ${nf.format(dryCap)} people overnight, compared with ${approx(r.people)} people living in flooded areas.` }));
     if (pre.names.length) box.append(el('p', { class: 'warn-note', text: `In a flooded area: ${pre.names.join('; ')}.` }));
     const reach = shelterReach?.[scenarioKey()] || {};
     const i = distIdx();
@@ -474,7 +474,7 @@ function renderResponse(r) {
     if (est) box.append(el('p', { class: 'note', text: `Estimated overnight capacity of all ${keyList.length} key sites: about ${nf.format(Math.round(est / 100) * 100)}${none ? ` (${none} site${none === 1 ? '' : 's'} of types without an estimate not counted)` : ''}.` }));
     if (keyList.length > LIST_N) box.append(el('p', { class: 'note', text: `Showing the top ${LIST_N}. All ${keyList.length} are highlighted on the map.` }));
   }
-  box.append(el('p', { class: 'note', text: 'Estimated capacity (est.) is the typical overnight capacity of surveyed shelters of the same type and can be off by a third or more; there is no estimate for elementary schools, libraries, or small schools. Size compares each site\'s main building with others of the same type. Distances are straight-line and ignore water and flooded roads. Sites are not confirmed as shelters.' }));
+  box.append(el('p', { class: 'note', text: 'Estimated capacity (est.) is the typical overnight capacity of pre-identified shelters of the same type and can be off by a third or more; there is no estimate for elementary schools, libraries, or small schools. Size compares each site\'s main building with others of the same type. Distances are straight-line and ignore water and flooded roads. Sites are not confirmed as shelters.' }));
 
   const rs = roadsSummary?.[scenarioKey()];
   if (rs) {
@@ -628,8 +628,8 @@ function showSitePopup(p, coords) {
     const size = s && REL[s[1]] ? ` Main building about ${nf.format(s[0])} sq ft, ${REL[s[1]]} for this type (from map building outlines).` : '';
     body.push(el('p', { text: `Type: ${BUCKET[p.b]}.${size}` }));
     const cap = capacityOf(p);
-    if (cap?.surveyed) body.push(el('p', { text: `Surveyed capacity: ${nf.format(cap.n)} overnight, ${nf.format(cap.evac)} for a short-term evacuation.${cap.role ? ` ${cap.role[0].toUpperCase() + cap.role.slice(1)} site.` : ''}` }));
-    else if (cap) body.push(el('p', { text: `Estimated capacity: about ${nf.format(cap.n)} overnight (typical for this type: ${nf.format(cap.low)}–${nf.format(cap.high)}), based on surveyed shelters of the same type.` }));
+    if (cap?.surveyed) body.push(el('p', { text: `Capacity: ${nf.format(cap.n)} overnight, ${nf.format(cap.evac)} for a short-term evacuation.${cap.role ? ` ${cap.role[0].toUpperCase() + cap.role.slice(1)} site.` : ''}` }));
+    else if (cap) body.push(el('p', { text: `Estimated capacity: about ${nf.format(cap.n)} overnight (typical for this type: ${nf.format(cap.low)}–${nf.format(cap.high)}), based on pre-identified shelters of the same type.` }));
     else if (p.b) body.push(el('p', { text: 'No capacity estimate for this type of site yet.' }));
   }
   body.push(el('p', { class: flooded ? 'warn' : '', text: flooded ? 'In a flooded area in this scenario.' : 'Not in a flooded area in this scenario.' }));
