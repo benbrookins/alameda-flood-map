@@ -15,16 +15,25 @@ CRS = 3310                       # California Albers, meters
 HEADERS = {"User-Agent": "alameda-flood-map/0.1 (research dashboard)"}
 COUNTY_BBOX = "37.44,-122.38,37.93,-121.45"  # south, west, north, east (Overpass order)
 
-# Flood layers in bitmask order: bits 0-3 Bay +1..+4 ft, bits 4-7 low-lying +1..+4 ft, 8 FEMA 100-yr, 9 FEMA 500-yr.
-LAYERS = [f"bay_{i}ft" for i in range(1, 5)] + [f"low_{i}ft" for i in range(1, 5)] + ["fema_100yr", "fema_500yr"]
+BAY_LEVELS = [0, 1, 2, 2.5, 3, 4]  # feet above normal high tide (MHHW); 0 = no Bay flooding
+
+# Flood layers in bitmask order: bits 0-3 Bay +1..+4 ft, 4-7 low-lying +1..+4 ft, 8 FEMA 100-yr, 9 FEMA 500-yr,
+# 10-11 Bay and low-lying +2.5 ft (added later, appended so earlier bit positions stay the same).
+LAYERS = ([f"bay_{i}ft" for i in range(1, 5)] + [f"low_{i}ft" for i in range(1, 5)] + ["fema_100yr", "fema_500yr"]
+          + ["bay_2.5ft", "low_2.5ft"])
 OVERPASS_SERVERS = ["https://overpass-api.de/api/interpreter", "https://overpass.private.coffee/api/interpreter",
                     "https://overpass.kumi.systems/api/interpreter"]
 
 
+def scenario_keys():
+    """Every scenario key: Bay level x FEMA zone (0, 100, 500) x low-lying areas (0/1)."""
+    return [f"b{b:g}_r{r}_c{c}" for b in BAY_LEVELS for r in (0, 100, 500) for c in (0, 1)]
+
+
 def scenario_layers(key):
-    """Flood layers in a scenario key such as 'b3_r100_c1' (Bay +3 ft, FEMA 100-yr zone, low-lying areas on)."""
-    b, r, c = (int(x[1:]) for x in key.split("_"))
-    layers = ([f"bay_{b}ft"] if b else []) + ([f"low_{b}ft"] if b and c else [])
+    """Flood layers in a scenario key such as 'b2.5_r100_c1' (Bay +2.5 ft, FEMA 100-yr zone, low-lying areas on)."""
+    b, r, c = (float(x[1:]) for x in key.split("_"))
+    layers = ([f"bay_{b:g}ft"] if b else []) + ([f"low_{b:g}ft"] if b and c else [])
     if r:
         layers.append("fema_100yr" if r == 100 else "fema_500yr")
     return layers

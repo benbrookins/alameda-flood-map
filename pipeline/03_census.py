@@ -17,9 +17,8 @@ import pandas as pd
 import rasterio.features
 from rasterio.transform import from_origin
 
-from common import CRS, DOCS as BUILD, FLOOD, RAW, WORK
+from common import BAY_LEVELS, CRS, DOCS as BUILD, FLOOD, RAW, WORK
 CELL = 10  # meters
-BAY_LEVELS = [0, 1, 2, 3, 4]
 RAIN = {0: None, 100: "fema_100yr", 500: "fema_500yr"}
 CV_UNRELIABLE = 0.4  # coefficient of variation above which an ACS count is flagged
 
@@ -102,7 +101,7 @@ def main():
     block_id = burn(((g, i + 1) for i, g in enumerate(blocks.geometry)), dtype="int32")
     log(t0, f"grid {width}x{height} at {CELL} m")
 
-    layer_names = [f"{k}_{ft}ft" for ft in BAY_LEVELS[1:] for k in ("bay", "low")] + ["fema_100yr", "fema_500yr"]
+    layer_names = [f"{k}_{ft:g}ft" for ft in BAY_LEVELS[1:] for k in ("bay", "low")] + ["fema_100yr", "fema_500yr"]
     keep = land & (block_id > 0)
     bid = block_id[keep]
     n = len(blocks) + 1
@@ -130,20 +129,20 @@ def main():
             for c in (0, 1):
                 m = np.zeros(bid.shape, bool)
                 pm = np.zeros(len(tiny), bool)
-                parts = ([f"bay_{b}ft"] if b else []) + ([f"low_{b}ft"] if b and c else []) + ([rain_layer] if rain_layer else [])
+                parts = ([f"bay_{b:g}ft"] if b else []) + ([f"low_{b:g}ft"] if b and c else []) + ([rain_layer] if rain_layer else [])
                 for name in parts:
                     m |= masks[name]
                     pm |= at_pts[name]
                 flooded = np.bincount(bid[m], minlength=n)[1:]
                 share = np.divide(flooded, land_cells, out=np.zeros(len(blocks)), where=land_cells > 0)
                 share[tiny] = pm
-                block_keys.append(f"b{b}_r{r}_c{c}")
+                block_keys.append(f"b{b:g}_r{r}_c{c}")
                 block_flooded.append((blocks["pop"].values * share).astype(np.float32))
                 fp = (blocks["pop"] * share).groupby(blocks.tract).sum()
                 fh = (blocks["hu"] * share).groupby(blocks.tract).sum()
                 ps = (fp / tract_pop.where(tract_pop > 0)).fillna(0)
                 hs = (fh / tract_hu.where(tract_hu > 0)).fillna(0)
-                key = f"b{b}_r{r}_c{c}"
+                key = f"b{b:g}_r{r}_c{c}"
                 scenarios[key] = {
                     f"06001{t}": [round(ps[t], 4), round(hs[t], 4)]
                     for t in ps.index if ps[t] >= 0.0005 or hs[t] >= 0.0005

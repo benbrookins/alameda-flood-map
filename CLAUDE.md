@@ -64,7 +64,7 @@ decisions and data sources.
   `data/raw/shelters/` (pre-identified shelter list, capacities). Never name
   their source in public files; the page calls them "pre-identified
   shelters".
-- Built: Bay water level (NOAA, +1 to +4 ft), FEMA zones, low-lying areas,
+- Built: Bay water level (NOAA: +1, +2, +2.5, +3, +4 ft; levels in `pipeline/common.py`), FEMA zones, low-lying areas,
   socioeconomic shading, critical facilities (state licensing lists),
   pre-identified and potential shelters with capacity, key shelters,
   shelter capacity gaps and uncovered areas, flooded roads, region buttons.

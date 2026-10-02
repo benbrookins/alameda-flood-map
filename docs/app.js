@@ -17,13 +17,15 @@ const el = (tag, props = {}, ...kids) => {
 
 // ---- configuration ---------------------------------------------------------------------------
 
-const BAY_HINTS = [
-  'Normal high tide. No Bay flooding in this scenario.',
-  '+1 ft above normal high tide: about a typical king tide.',
-  '+2 ft: a king tide with extra high water or a moderate storm surge.',
-  '+3 ft: a large storm surge on top of a high tide.',
-  '+4 ft: a severe stress test beyond recent experience.',
-];
+const BAY_LEVELS = [0, 1, 2, 2.5, 3, 4];  // slider stops, feet above normal high tide
+const BAY_HINTS = {
+  0: 'Normal high tide. No Bay flooding in this scenario.',
+  1: '+1 ft above normal high tide: about a typical king tide.',
+  2: '+2 ft: a king tide with extra high water or a moderate storm surge.',
+  2.5: '+2.5 ft: between a moderate and a large storm surge on a high tide.',
+  3: '+3 ft: a large storm surge on top of a high tide.',
+  4: '+4 ft: a severe stress test beyond recent experience.',
+};
 
 // Orange sequential ramp (steps 100, 250, 350, 450, 700). The map is always light, so low = light.
 const COLORS = {
@@ -88,9 +90,8 @@ const REGIONS = [
 // ---- state (mirrored in the URL) -------------------------------------------------------------
 
 const q = new URLSearchParams(location.search);
-const clampInt = (v, lo, hi, d) => { const n = parseInt(v, 10); return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : d; };
 const S = {
-  bay: clampInt(q.get('b'), 0, 4, 0),
+  bay: BAY_LEVELS.includes(+q.get('b')) ? +q.get('b') : 0,
   rain: [0, 100, 500].includes(+q.get('r')) ? +q.get('r') : 0,
   low: q.get('c') === '1',
   view: OV[q.get('v')] ? q.get('v') : 'nocar',
@@ -109,7 +110,10 @@ const tractById = new Map();
 const tractBounds = new Map();
 const featById = new Map();
 
-// Scenario helpers. Bitmask bits match the pipeline: 0-3 Bay +1..+4 ft, 4-7 low-lying, 8 FEMA 100-yr, 9 FEMA 500-yr.
+// Scenario helpers. Bitmask bits match the pipeline (common.LAYERS): 0-3 Bay +1..+4 ft, 4-7 low-lying +1..+4 ft,
+// 8 FEMA 100-yr, 9 FEMA 500-yr, 10-11 Bay and low-lying +2.5 ft.
+const BAY_BIT = { 1: 0, 2: 1, 3: 2, 4: 3, 2.5: 10 };
+const LOW_BIT = { 1: 4, 2: 5, 3: 6, 4: 7, 2.5: 11 };
 const scenarioKey = () => `b${S.bay}_r${S.rain}_c${S.bay > 0 && S.low ? 1 : 0}`;
 const distIdx = () => ({ 1: 0, 2: 2, 5: 4 })[S.dist];
 const scenarioShares = () => scen.scenarios[scenarioKey()] || {};
@@ -117,8 +121,8 @@ const gapEntry = () => gaps?.[scenarioKey()]?.[S.dist] || null;
 function neededMask() {
   let m = 0;
   if (S.bay > 0) {
-    m |= 1 << (S.bay - 1);
-    if (S.low) m |= 1 << (4 + S.bay - 1);
+    m |= 1 << BAY_BIT[S.bay];
+    if (S.low) m |= 1 << LOW_BIT[S.bay];
   }
   if (S.rain >= 100) m |= 256;
   if (S.rain >= 500) m |= 512;
@@ -651,7 +655,7 @@ function renderLegend() {
 
 function renderControls() {
   const press = (group, match) => { for (const b of $(group).children) b.setAttribute('aria-pressed', String(match(b.dataset.v))); };
-  $('#bay').value = S.bay;
+  $('#bay').value = BAY_LEVELS.indexOf(S.bay);
   $('#bayVal').textContent = S.bay === 0 ? 'Normal' : `+${S.bay} ft`;
   $('#bayHint').textContent = BAY_HINTS[S.bay];
   const lowBox = $('#low');
@@ -767,7 +771,7 @@ function buildControls() {
   for (const o of OVERLAYS) view.append(el('button', { type: 'button', class: 'chip', 'data-v': o.id, text: o.label }));
   for (const r of REGIONS) $('#regions').append(el('button', { type: 'button', class: 'region', text: r.label, onclick: () => goToRegion(r) }));
   const onPick = (group, fn) => $(group).addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) fn(b.dataset.v); });
-  $('#bay').addEventListener('input', (e) => { S.bay = +e.target.value; update(); });
+  $('#bay').addEventListener('input', (e) => { S.bay = BAY_LEVELS[+e.target.value]; update(); });
   $('#low').addEventListener('change', (e) => { S.low = e.target.checked; update(); });
   onPick('#rain', (v) => { S.rain = +v; update(); });
   onPick('#rate', (v) => { S.rate = +v; update({ flood: false }); });

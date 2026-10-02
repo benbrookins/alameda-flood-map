@@ -15,7 +15,7 @@ import numpy as np
 import shapely
 from shapely.geometry import LineString
 
-from common import CRS, DOCS as OUT, FLOOD, LAYERS, RAW, county_land, scenario_layers
+from common import CRS, DOCS as OUT, FLOOD, LAYERS, RAW, county_land, scenario_keys, scenario_layers
 CLASS = {"motorway": "fwy", "trunk": "fwy", "primary": "art", "secondary": "art", "tertiary": "col"}
 MIN_PIECE_M = 15
 SIMPLIFY_M = 4
@@ -74,21 +74,18 @@ def main():
         print(f"  {layer:<11}{len(gdf):>5} pieces  {sum(shapely.length(c) for c in pieces[layer].values()) / 1000:>6.1f} km  {path.stat().st_size / 1e3:>6.0f} KB")
 
     summary = {}
-    for b in range(5):
-        for r in (0, 100, 500):
-            for c in (0, 1):
-                need = scenario_layers(f"b{b}_r{r}_c{c}")
-                by_way = defaultdict(list)
-                for layer in need:
-                    for i, geom in pieces[layer].items():
-                        by_way[i].append(geom)
-                km = defaultdict(float)
-                for i, parts in by_way.items():
-                    km[roads.n[i]] += shapely.length(shapely.union_all(parts)) / 1000
-                top = sorted(km.items(), key=lambda kv: -kv[1])[:8]
-                summary[f"b{b}_r{r}_c{c}"] = {"km": round(sum(km.values()), 1), "top": [[n, round(v, 1)] for n, v in top if v >= 0.05]}
+    for key in scenario_keys():
+        by_way = defaultdict(list)
+        for layer in scenario_layers(key):
+            for i, geom in pieces[layer].items():
+                by_way[i].append(geom)
+        km = defaultdict(float)
+        for i, parts in by_way.items():
+            km[roads.n[i]] += shapely.length(shapely.union_all(parts)) / 1000
+        top = sorted(km.items(), key=lambda kv: -kv[1])[:8]
+        summary[key] = {"km": round(sum(km.values()), 1), "top": [[n, round(v, 1)] for n, v in top if v >= 0.05]}
     (OUT / "roads_summary.json").write_text(json.dumps(summary, separators=(",", ":"), ensure_ascii=False))
-    for k in ("b1_r0_c0", "b2_r0_c0", "b3_r0_c0", "b4_r0_c1", "b0_r100_c0", "b0_r500_c0"):
+    for k in ("b1_r0_c0", "b2_r0_c0", "b2.5_r0_c0", "b3_r0_c0", "b4_r0_c1", "b0_r100_c0", "b0_r500_c0"):
         print(k, summary[k]["km"], "km;", summary[k]["top"][:4])
 
 
