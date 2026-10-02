@@ -1,6 +1,6 @@
 """Download raw source data into data/raw/. Usage: uv run pipeline/01_download.py [source ...]
 
-Sources: fema, noaa_slr, census_geo, acs, block_pop, tides, schools, osm, osm_facilities, osm_roads (default), plus
+Sources: fema, noaa_slr, census_geo, acs, block_pop, tides, schools, osm, osm_facilities, osm_roads, state_facilities (default), plus
 the parked, optional art and art_roads, which must be named explicitly.
 """
 import json
@@ -209,6 +209,19 @@ def osm_roads():
     overpass(ROADS_QUERY, "roads.json")
 
 
+STATE_FACILITY_FILES = {
+    "cdph_facilities.csv": "https://data.chhs.ca.gov/dataset/3b5b80e8-6b8d-4715-b3c0-2699af6e72e5/resource/f0ae5731-fef8-417f-839d-54a0ed3a126e/download/health_facility_locations.csv",
+    "ccl_elderly.csv": "https://data.chhs.ca.gov/dataset/46ffcbdf-4874-4cc1-92c2-fb715e3ad014/resource/744d1583-f9eb-45b6-b0f8-b9a9dab936a6/download/tmpacjmwy9v.csv",
+    "ccl_adult.csv": "https://data.chhs.ca.gov/dataset/46ffcbdf-4874-4cc1-92c2-fb715e3ad014/resource/9f5d1d00-6b24-4f44-a158-9cbe4b43f117/download/tmpx8kml5z4.csv",
+}
+
+
+def state_facilities():
+    for name, url in STATE_FACILITY_FILES.items():
+        print(f"state facility list {name}")
+        save(RAW / "facilities" / name, get(url).content)
+
+
 def load_env():
     env = ROOT / ".env"
     if env.exists():
@@ -218,7 +231,7 @@ def load_env():
                 os.environ.setdefault(k.strip(), v.strip())
 
 
-SOURCES = {f.__name__: f for f in [art, art_roads, fema, noaa_slr, census_geo, acs, block_pop, tides, schools, osm, osm_facilities, osm_roads]}
+SOURCES = {f.__name__: f for f in [art, art_roads, fema, noaa_slr, census_geo, acs, block_pop, tides, schools, osm, osm_facilities, osm_roads, state_facilities]}
 
 if __name__ == "__main__":
     parked = {"art", "art_roads"}  # optional, slow; name them explicitly to download

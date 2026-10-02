@@ -42,11 +42,11 @@ const OV = Object.fromEntries(OVERLAYS.map((o) => [o.id, o]));
 const TABLE_ROWS = OVERLAYS.filter((o) => o.count);
 
 const KIND = {
-  hospital: 'Hospital', care: 'Nursing or assisted living', dialysis: 'Dialysis center', fire: 'Fire station', police: 'Police station',
+  hospital: 'Hospital', care: 'Care facility', dialysis: 'Dialysis center', fire: 'Fire station', police: 'Police station',
   school: 'School', community: 'Community center', library: 'Library', worship: 'Place of worship', pre: 'Pre-identified shelter',
 };
 const KIND_PLURAL = {
-  hospital: 'Hospitals', care: 'Nursing and assisted living', dialysis: 'Dialysis centers', fire: 'Fire stations', police: 'Police stations',
+  hospital: 'Hospitals', care: 'Nursing, assisted living, and care homes', dialysis: 'Dialysis centers', fire: 'Fire stations', police: 'Police stations',
   school: 'Schools', community: 'Community centers', library: 'Libraries', worship: 'Places of worship', pre: 'Pre-identified shelters',
 };
 const BUCKET = {
@@ -54,6 +54,12 @@ const BUCKET = {
   small_school: 'Small or alternative school', community_center: 'Community or recreation center', senior_center: 'Senior center',
   library: 'Library', worship: 'Place of worship',
 };
+const ST = {
+  acute: 'General acute care hospital', psych: 'Psychiatric hospital', snf: 'Skilled nursing facility',
+  rcfe: 'Assisted living (residential care for the elderly)', arf: 'Adult residential care home',
+  icf: 'Intermediate care facility (developmental disabilities)', clhf: 'Congregate living health facility', dialysis: 'Dialysis clinic',
+};
+const CAP_UNIT = { hospital: 'beds', care: 'residents', dialysis: 'stations' };
 const REL = { L: 'larger than typical', T: 'typical size', S: 'smaller than typical' };
 const KEY_MIN = 100;     // affected residents nearby, with residents without a car counted twice
 const KEY_PER_CITY = 3;  // key shelters kept per city
@@ -246,9 +252,12 @@ function sizeNote(p) {
   return s && REL[s[1]] ? REL[s[1]] : '';
 }
 function capacityOf(p) {
-  const v = capacity?.buckets?.[p.b];
-  return typeof v === 'number' ? v : null;
+  const s = capacity?.sites?.[p.id];
+  if (s) return { n: s[0], evac: s[1], role: s[2], surveyed: true };
+  const t = p.b && capacity?.types?.[p.b];
+  return t ? { n: t.overnight, low: t.low, high: t.high, evac: t.evacuation, surveyed: false } : null;
 }
+const capText = (c) => (!c ? '' : c.surveyed ? ` · room for ${nf.format(c.n)} overnight` : ` · room for ~${nf.format(c.n)} overnight (est.)`);
 function siteLine(p) {
   return [p.c, p.k === 'pre' ? null : KIND[p.k], BUCKET[p.b], sizeNote(p)].filter(Boolean).join(' · ');
 }
@@ -392,32 +401,36 @@ function renderSummary(r) {
   box.append(el('p', { class: 'note', text: '▲ more common in flooded areas than countywide, ▼ less common. Households are used for car access, language, and renting; residents for the rest.' }));
 }
 
-function renderResponse() {
+function renderResponse(r) {
   const box = $('#response');
   box.replaceChildren(el('h2', { text: 'Emergency response (estimates)' }));
   const m = neededMask();
   const by = {};
   for (const f of points.features) {
     const p = f.properties;
-    const a = (by[p.k] ||= { n: 0, hit: 0, names: [] });
+    const a = (by[p.k] ||= { n: 0, hit: 0, hitCap: 0, names: [] });
     a.n++;
-    if (p.m & m) { a.hit++; if (FAC_KINDS.includes(p.k)) a.names.push(`${p.n} (${KIND[p.k].toLowerCase()})`); else if (p.k === 'pre') a.names.push(p.n); }
+    if (p.m & m) { a.hit++; a.hitCap += p.cap || 0; if (FAC_KINDS.includes(p.k)) a.names.push(`${p.n} (${KIND[p.k].toLowerCase()})`); else if (p.k === 'pre') a.names.push(p.n); }
   }
   const rows = (kinds, text) => kinds.filter((k) => by[k]).map((k) => el('tr', {},
     el('td', { text: KIND_PLURAL[k] }), el('td', { class: 'num', text: text(by[k]) })));
 
   box.append(el('h3', { class: 'sub-h', text: 'Critical facilities in flooded areas' }),
-    el('table', {}, el('tbody', {}, rows(FAC_KINDS, (a) => `${a.hit} of ${a.n}`))));
+    el('table', {}, el('tbody', {}, FAC_KINDS.filter((k) => by[k]).map((k) => el('tr', {}, el('td', { text: KIND_PLURAL[k] }),
+      el('td', { class: 'num', text: `${by[k].hit} of ${by[k].n}${by[k].hitCap && CAP_UNIT[k] ? ` (${nf.format(by[k].hitCap)} ${CAP_UNIT[k]})` : ''}` }))))));
   const names = FAC_KINDS.flatMap((k) => by[k]?.names || []);
   if (names.length) {
     box.append(el('p', { class: 'note', text: `Flooded: ${names.slice(0, 8).join('; ')}${names.length > 8 ? `; and ${names.length - 8} more` : ''}.` }));
   }
-  box.append(el('p', { class: 'note', text: 'Facility locations come from OpenStreetMap and are incomplete, especially for nursing and assisted living homes and dialysis centers.' }));
+  box.append(el('p', { class: 'note', text: 'Hospitals, care facilities, and dialysis clinics come from state licensing lists, with licensed beds or stations in parentheses. Fire and police stations come from OpenStreetMap.' }));
 
   if (by.pre) {
     const pre = by.pre;
     box.append(el('h3', { class: 'sub-h', text: 'Pre-identified shelters' }),
       el('p', { class: 'note', text: `${pre.n - pre.hit} of ${pre.n} are outside the flooded area in this scenario.` }));
+    let dryCap = 0;
+    for (const f of points.features) if (f.properties.k === 'pre' && !(f.properties.m & m)) dryCap += capacity?.sites?.[f.properties.id]?.[0] || 0;
+    if (dryCap) box.append(el('p', { class: 'note', text: `Together they can shelter about ${nf.format(dryCap)} people overnight (surveyed), compared with ${approx(r.people)} people living in flooded areas.` }));
     if (pre.names.length) box.append(el('p', { class: 'warn-note', text: `In a flooded area: ${pre.names.join('; ')}.` }));
     const reach = shelterReach?.[scenarioKey()] || {};
     const i = distIdx();
@@ -430,7 +443,7 @@ function renderResponse() {
       for (const k of ranked) {
         const cap = capacityOf(k.p);
         ol.append(el('li', {}, el('button', { type: 'button', onclick: () => focusSite(k) },
-          el('span', {}, el('div', { class: 'place', text: k.p.n }), el('div', { class: 'sub2', text: siteLine(k.p) + (cap ? ` · room for ~${nf.format(cap)} (assumed)` : '') })),
+          el('span', {}, el('div', { class: 'place', text: k.p.n }), el('div', { class: 'sub2', text: siteLine(k.p) + capText(cap) })),
           el('span', { class: 'n', title: 'Affected residents nearby', text: approx(k.people) }))));
       }
       box.append(ol);
@@ -451,14 +464,17 @@ function renderResponse() {
     const ol = el('ol', { class: 'toplist' });
     for (const k of keyList.slice(0, LIST_N)) {
       ol.append(el('li', {}, el('button', { type: 'button', onclick: () => focusSite(k) },
-        el('span', {}, el('div', { class: 'place', text: k.p.n }), el('div', { class: 'sub2', text: siteLine(k.p) + (capacityOf(k.p) ? ` · room for ~${nf.format(capacityOf(k.p))} (assumed)` : '') })),
+        el('span', {}, el('div', { class: 'place', text: k.p.n }), el('div', { class: 'sub2', text: siteLine(k.p) + capText(capacityOf(k.p)) })),
         el('span', { class: 'n', title: `${nf.format(k.nocar)} without a car (estimated)`, text: approx(k.people) }),
       )));
     }
     box.append(ol);
+    const caps = keyList.map((k) => capacityOf(k.p));
+    const est = caps.reduce((t, c) => t + (c ? c.n : 0), 0), none = caps.filter((c) => !c).length;
+    if (est) box.append(el('p', { class: 'note', text: `Estimated overnight capacity of all ${keyList.length} key sites: about ${nf.format(Math.round(est / 100) * 100)}${none ? ` (${none} site${none === 1 ? '' : 's'} of types without an estimate not counted)` : ''}.` }));
     if (keyList.length > LIST_N) box.append(el('p', { class: 'note', text: `Showing the top ${LIST_N}. All ${keyList.length} are highlighted on the map.` }));
   }
-  box.append(el('p', { class: 'note', text: 'Size compares each site\'s main building, from map building outlines, with other sites of the same type; it is not a measured capacity. Distances are straight-line and ignore water and flooded roads. Sites are not confirmed as shelters.' }));
+  box.append(el('p', { class: 'note', text: 'Estimated capacity (est.) is the typical overnight capacity of surveyed shelters of the same type and can be off by a third or more; there is no estimate for elementary schools, libraries, or small schools. Size compares each site\'s main building with others of the same type. Distances are straight-line and ignore water and flooded roads. Sites are not confirmed as shelters.' }));
 
   const rs = roadsSummary?.[scenarioKey()];
   if (rs) {
@@ -549,7 +565,7 @@ function update({ flood = true, pts = true } = {}) {
   const r = compute();
   if (pts) applyPoints();
   renderSummary(r);
-  renderResponse();
+  renderResponse(r);
   renderTop(r);
   renderLegend();
   if (flood) { applyFlood(); applyRoads(); }
@@ -604,6 +620,7 @@ function showPopup(id, lngLat) {
 function showSitePopup(p, coords) {
   const flooded = p.m & neededMask();
   const body = [el('h4', { text: p.n }), el('p', { text: `${KIND[p.k]}${p.c ? ` · ${p.c}` : ''}` })];
+  if (p.st) body.push(el('p', { text: `${ST[p.st]}${p.cap ? ` · ${nf.format(p.cap)} licensed ${CAP_UNIT[p.k]}` : ''}` }));
   if (p.k === 'pre') body.push(el('p', { text: 'Identified in advance as a possible emergency shelter. Whether it opens depends on the emergency.' }));
   else if (SHELTER_KINDS.includes(p.k) || p.k === 'worship') body.push(el('p', { text: 'Potential shelter site. Not official and not confirmed open.' }));
   if (p.b) {
@@ -611,13 +628,15 @@ function showSitePopup(p, coords) {
     const size = s && REL[s[1]] ? ` Main building about ${nf.format(s[0])} sq ft, ${REL[s[1]]} for this type (from map building outlines).` : '';
     body.push(el('p', { text: `Type: ${BUCKET[p.b]}.${size}` }));
     const cap = capacityOf(p);
-    if (cap) body.push(el('p', { text: `Assumed capacity for this type: about ${nf.format(cap)} people.` }));
+    if (cap?.surveyed) body.push(el('p', { text: `Surveyed capacity: ${nf.format(cap.n)} overnight, ${nf.format(cap.evac)} for a short-term evacuation.${cap.role ? ` ${cap.role[0].toUpperCase() + cap.role.slice(1)} site.` : ''}` }));
+    else if (cap) body.push(el('p', { text: `Estimated capacity: about ${nf.format(cap.n)} overnight (typical for this type: ${nf.format(cap.low)}–${nf.format(cap.high)}), based on surveyed shelters of the same type.` }));
+    else if (p.b) body.push(el('p', { text: 'No capacity estimate for this type of site yet.' }));
   }
   body.push(el('p', { class: flooded ? 'warn' : '', text: flooded ? 'In a flooded area in this scenario.' : 'Not in a flooded area in this scenario.' }));
   const e = !flooded && shelterReach?.[scenarioKey()]?.[p.id];
   if (e) {
     const i = distIdx();
-    body.push(el('p', { text: `About ${approx(e[i])} affected residents within ${S.dist} km (${approx(e[i + 1])} without a car).` }));
+    body.push(el('p', { text: `${approx(e[i])} affected residents within ${S.dist} km (${approx(e[i + 1])} without a car).` }));
   }
   new maplibregl.Popup({ maxWidth: '300px' }).setLngLat(coords).setDOMContent(el('div', {}, body)).addTo(map);
 }

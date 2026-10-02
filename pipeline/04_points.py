@@ -23,6 +23,7 @@ FLOOD = ROOT / "data" / "work" / "flood_full.gpkg"
 DOCS = ROOT / "docs" / "data"
 OUT = DOCS / "points.json"
 PRE_FILE = RAW / "shelters" / "geocoded.csv"
+OFFICIAL = ROOT / "data" / "work" / "official_facilities.csv"  # from 09_official_facilities.py
 CRS = 3310
 LAYERS = [f"bay_{i}ft" for i in range(1, 5)] + [f"low_{i}ft" for i in range(1, 5)] + ["fema_100yr", "fema_500yr"]
 SHELTER_KINDS = {"school", "community", "library", "worship"}
@@ -138,10 +139,11 @@ def dedupe(df, tol_m=250):
 
 def main():
     fac = RAW / "osm" / "facilities.json"
-    if not fac.exists():
-        print("WARNING: facilities.json missing; run 01_download.py osm_facilities. Hospitals and care homes skipped.")
+    use_osm_fac = not OFFICIAL.exists() and fac.exists()
+    if not OFFICIAL.exists():
+        print("WARNING: official_facilities.csv missing (run 09_official_facilities.py); using OpenStreetMap facilities.")
     g = projected(osm_points(RAW / "osm" / "amenities.json", classify_amenity)
-                  + (osm_points(fac, classify_facility) if fac.exists() else []) + schools())
+                  + (osm_points(fac, classify_facility) if use_osm_fac else []) + schools())
     land = county_land().buffer(300)
     shapely.prepare(land)
     g = g[shapely.contains_xy(land, g.x.values, g.y.values)]
@@ -159,6 +161,12 @@ def main():
         print(f"{len(pg)} pre-identified shelters; {int(same.sum())} generic sites merged into them")
         g = gpd.GeoDataFrame(pd.concat([g[~same], pg], ignore_index=True), geometry="geometry", crs=CRS)
 
+    if OFFICIAL.exists():
+        of = pd.read_csv(OFFICIAL)
+        og = gpd.GeoDataFrame(of.assign(b=None), geometry=gpd.points_from_xy(of.lon, of.lat), crs=4326).to_crs(CRS)
+        og["x"], og["y"] = og.geometry.x, og.geometry.y
+        g = gpd.GeoDataFrame(pd.concat([g, og], ignore_index=True), geometry="geometry", crs=CRS)
+        print(f"{len(og)} hospitals, care facilities, and dialysis clinics from state licensing lists")
     g["c"] = city_of(g)
 
     mask = np.zeros(len(g), dtype=int)
@@ -180,6 +188,8 @@ def write(g, path):
         props = {"id": int(r.Index), "k": r.k, "n": r.n, "m": int(r.m), "c": r.c}
         if isinstance(r.b, str):
             props.update(b=r.b, t=BUCKET_TIER[r.b])
+        if isinstance(getattr(r, "st", None), str):
+            props.update(st=r.st, cap=int(r.cap))
         feats.append({"type": "Feature", "geometry": {"type": "Point", "coordinates": [round(p.x, 5), round(p.y, 5)]},
                       "properties": props})
     path.parent.mkdir(parents=True, exist_ok=True)

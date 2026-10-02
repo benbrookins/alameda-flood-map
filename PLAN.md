@@ -301,6 +301,21 @@ Status key: ☐ to do, ⚠ verify availability or licensing first.
    never as people counts. **Assumed capacity per site type** goes in
    `docs/data/capacity.json` (all null until provided); the page shows it
    automatically once filled in.
+   **Official facilities** (`09_official_facilities.py`): hospitals, care
+   facilities, and dialysis now come from CDPH licensed facilities (with
+   coordinates) and CDSS Community Care Licensing (assisted living and adult
+   residential care, May 2025, located with the Census batch geocoder). 585
+   care facilities (~17,300 licensed residents), 24 in-center dialysis
+   clinics, 20 hospitals, replacing the OpenStreetMap versions.
+   **Capacity** (`10_capacity.py`, `capacity.json`): surveyed overnight and
+   evacuation capacity for the 75 pre-identified shelters (from a privately
+   shared survey file kept in gitignored `data/raw/shelters/surveyed.csv`;
+   no names, emails, or source in public files). Other sites show the median
+   overnight capacity of surveyed sites of the same type (types with 4+
+   surveyed sites); leave-one-out error is ~27% median. Footprints did not
+   improve the estimate, so they are used only for size classes. No estimate
+   yet for elementary schools, libraries, or small schools.
+   **Full run order:** `09` → `04` → `07` → `04` → `06` → `08` → `10`.
 6. **Polish and share.** Disclaimers, sources, mobile layout, bundling,
    GitHub Pages if needed. *(Sonnet)*
 
