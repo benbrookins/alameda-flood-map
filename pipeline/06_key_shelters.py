@@ -1,10 +1,10 @@
 """How many flooded residents live near each potential shelter, per scenario.
 
 For each shelter site and scenario, counts flooded residents (and flooded residents without a car,
-estimated from the tract's no-car household share) within 1 km and 2 km, as the crow flies, of block centers.
+estimated from the tract's no-car household share) within 1, 2, and 5 km, as the crow flies, of block centers.
 
-Output: docs/data/shelter_reach.json  {scenario: {site id: [people 1km, no-car 1km, people 2km, no-car 2km]}}
-Sites with fewer than MIN_STORE affected residents within 2 km in a scenario are left out.
+Output: docs/data/shelter_reach.json  {scenario: {site id: [people, no-car] for 1 km, 2 km, 5 km}}
+Sites with fewer than MIN_STORE affected residents within 5 km in a scenario are left out.
 """
 import json
 from pathlib import Path
@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parent.parent
 WORK = ROOT / "data" / "work"
 DOCS = ROOT / "docs" / "data"
 SHELTER_KINDS = {"pre", "school", "community", "library", "worship"}
-RADII = (1000, 2000)
+RADII = (1000, 2000, 5000)
 MIN_STORE = 50
 
 
@@ -46,7 +46,7 @@ def main():
     for j, key in enumerate(keys):
         for i, sid in enumerate(g["id"]):
             vals = [int(round(c[i, j])) for c in cols]
-            if vals[2] >= MIN_STORE:
+            if vals[4] >= MIN_STORE:
                 out[key][int(sid)] = vals
     path = DOCS / "shelter_reach.json"
     path.write_text(json.dumps(out, separators=(",", ":")))

@@ -83,7 +83,7 @@ const S = {
   view: OV[q.get('v')] ? q.get('v') : 'nocar',
   sel: null,
   show: { pre: true, fac: true, shelter: true, worship: false, roads: true },
-  dist: q.get('d') === '1' ? 1 : 2,
+  dist: [1, 2, 5].includes(+q.get('d')) ? +q.get('d') : 2,
 };
 if (q.get('s') !== null) for (const [ch, key] of Object.entries(SHOW_KEYS)) S.show[key] = q.get('s').includes(ch);
 function clampInt(v, lo, hi, d) { const n = parseInt(v, 10); return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : d; }
@@ -258,7 +258,7 @@ function computeKeys() {
   if (!reach) return [];
   const m = neededMask();
   const kinds = [...(S.show.shelter ? SHELTER_KINDS : []), ...(S.show.worship ? ['worship'] : [])];
-  const i = S.dist === 1 ? 0 : 2;
+  const i = distIdx();
   const cand = [];
   for (const f of points.features) {
     const p = f.properties, e = reach[p.id];
@@ -329,6 +329,7 @@ async function applyFlood() {
   map.getSource('fema500').setData(f500);
 }
 
+const distIdx = () => ({ 1: 0, 2: 2, 5: 4 })[S.dist];
 const scenarioKey = () => `b${S.bay}_r${S.rain}_c${S.bay > 0 && S.low ? 1 : 0}`;
 function scenarioShares() {
   return scen.scenarios[scenarioKey()] || {};
@@ -419,7 +420,7 @@ function renderResponse() {
       el('p', { class: 'note', text: `${pre.n - pre.hit} of ${pre.n} are outside the flooded area in this scenario.` }));
     if (pre.names.length) box.append(el('p', { class: 'warn-note', text: `In a flooded area: ${pre.names.join('; ')}.` }));
     const reach = shelterReach?.[scenarioKey()] || {};
-    const i = S.dist === 1 ? 0 : 2;
+    const i = distIdx();
     const ranked = points.features.map((f) => ({ p: f.properties, coords: f.geometry.coordinates }))
       .filter(({ p }) => p.k === 'pre' && !(p.m & m) && reach[p.id]?.[i] > 0)
       .map((x) => ({ ...x, people: reach[x.p.id][i] })).sort((a, b) => b.people - a.people).slice(0, 8);
@@ -483,7 +484,7 @@ function renderTop(r) {
   for (const x of list) {
     const p = byId.get(x.id);
     ol.append(el('li', {}, el('button', { type: 'button', onclick: () => focusTract(x.id) },
-      el('span', {}, el('div', { class: 'place', text: p.place }), el('div', { class: 'sub2', text: `${short(p.name)} · ${Math.round(x.share * 100)}% of residents in flooded area` })),
+      el('span', {}, el('div', { class: 'place', text: `${p.place} – ${short(p.name)}` }), el('div', { class: 'sub2', text: `${Math.round(x.share * 100)}% of residents in flooded area` })),
       el('span', { class: 'n', text: approx(x.metric) }),
     )));
   }
@@ -615,7 +616,7 @@ function showSitePopup(p, coords) {
   body.push(el('p', { class: flooded ? 'warn' : '', text: flooded ? 'In a flooded area in this scenario.' : 'Not in a flooded area in this scenario.' }));
   const e = !flooded && shelterReach?.[scenarioKey()]?.[p.id];
   if (e) {
-    const i = S.dist === 1 ? 0 : 2;
+    const i = distIdx();
     body.push(el('p', { text: `About ${approx(e[i])} affected residents within ${S.dist} km (${approx(e[i + 1])} without a car).` }));
   }
   new maplibregl.Popup({ maxWidth: '300px' }).setLngLat(coords).setDOMContent(el('div', {}, body)).addTo(map);
