@@ -90,11 +90,13 @@ const S = {
   sel: null,
   show: { pre: true, fac: true, shelter: true, worship: false, roads: true },
   dist: [1, 2, 5].includes(+q.get('d')) ? +q.get('d') : 2,
+  rate: [10, 20, 50, 100].includes(+q.get('u')) ? +q.get('u') : 20,
 };
 if (q.get('s') !== null) for (const [ch, key] of Object.entries(SHOW_KEYS)) S.show[key] = q.get('s').includes(ch);
 function clampInt(v, lo, hi, d) { const n = parseInt(v, 10); return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : d; }
 
-let tracts, scen, points, roadsSummary, shelterReach, siteSize, capacity, ready = false;
+let tracts, scen, points, roadsSummary, shelterReach, siteSize, capacity, gaps, ready = false;
+const featById = new Map();
 let keyList = [];
 const byId = new Map();
 const bboxOf = new Map();
@@ -219,9 +221,15 @@ function addSiteLayers(before) {
   sym('pts-shelter', 'afm-shelter', dry(kinds(SHELTER_KINDS), 0), size(0.45, 0.65, 0.95), 0.3);
   sym('pts-worship-key', 'afm-worship', dry(worship, 1), size(0.7, 0.95, 1.3));
   sym('pts-shelter-key', 'afm-shelter', dry(kinds(SHELTER_KINDS), 1), size(0.8, 1.05, 1.4));
+  map.addLayer({
+    id: 'pts-pre-over', type: 'circle', source: 'points',
+    filter: ['all', ['==', ['get', 'k'], 'pre'], ['==', ['get', 'f'], 0], ['==', ['get', 'over'], 1]],
+    layout: { visibility: 'none' },
+    paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 9, 9, 15, 19], 'circle-color': 'rgba(208,59,59,0.12)', 'circle-stroke-color': '#d03b3b', 'circle-stroke-width': 2.5 },
+  }, before);
   sym('pts-pre', 'afm-pre', ['all', ['==', ['get', 'k'], 'pre'], ['==', ['get', 'f'], 0]], size(0.8, 1.05, 1.4));
   sym('pts-pre-bad', 'afm-pre-bad', ['all', ['==', ['get', 'k'], 'pre'], ['==', ['get', 'f'], 1]], size(0.85, 1.1, 1.45));
-  sym('pts-fac', 'afm-fac-ok', ['all', kinds(FAC_KINDS), ['==', ['get', 'f'], 0]], size(0.55, 0.8, 1.1));
+  sym('pts-fac', 'afm-fac-ok', ['all', kinds(FAC_KINDS), ['==', ['get', 'f'], 0]], size(0.35, 0.55, 0.95), 0.55);
   sym('pts-fac-bad', 'afm-fac-bad', ['all', kinds(FAC_KINDS), ['==', ['get', 'f'], 1]], size(0.85, 1.15, 1.5));
 }
 
@@ -231,7 +239,7 @@ function applyShow() {
   map.setLayoutProperty('pts-fac-bad', 'visibility', vis(S.show.fac));
   for (const id of ['pts-shelter', 'pts-shelter-key']) map.setLayoutProperty(id, 'visibility', vis(S.show.shelter));
   for (const id of ['pts-worship', 'pts-worship-key']) map.setLayoutProperty(id, 'visibility', vis(S.show.worship));
-  for (const id of ['pts-pre', 'pts-pre-bad']) map.setLayoutProperty(id, 'visibility', vis(S.show.pre));
+  for (const id of ['pts-pre', 'pts-pre-bad', 'pts-pre-over']) map.setLayoutProperty(id, 'visibility', vis(S.show.pre));
   map.setLayoutProperty('roads-casing', 'visibility', vis(S.show.roads));
   map.setLayoutProperty('roads-line', 'visibility', vis(S.show.roads));
 }
@@ -280,13 +288,29 @@ function computeKeys() {
   return cand.filter((c) => (perCity[c.p.c] = (perCity[c.p.c] || 0) + 1) <= KEY_PER_CITY);
 }
 
+function gapEntry() {
+  return gaps?.[scenarioKey()]?.[S.dist] || null;
+}
+function overCapacity() {
+  const e = gapEntry(), out = [];
+  if (!e) return out;
+  for (const [id, assigned] of Object.entries(e.a)) {
+    const cap = capacity?.sites?.[id]?.[0];
+    const need = assigned * S.rate / 100;
+    if (cap && need > cap) out.push({ id: +id, need, cap, short: need - cap, cands: e.c[id] || [] });
+  }
+  return out.sort((a, b) => b.short - a.short);
+}
+
 function applyPoints() {
   const m = neededMask();
   keyList = computeKeys();
   const keyIds = new Set(keyList.map((k) => k.p.id));
+  const overIds = new Set(overCapacity().map((o) => o.id));
   for (const f of points.features) {
     f.properties.f = f.properties.m & m ? 1 : 0;
     f.properties.key = keyIds.has(f.properties.id) ? 1 : 0;
+    f.properties.over = overIds.has(f.properties.id) ? 1 : 0;
   }
   map.getSource('points').setData(points);
 }
@@ -450,6 +474,8 @@ function renderResponse(r) {
     }
   }
 
+  renderGaps(box, r);
+
   box.append(el('h3', { class: 'sub-h', text: 'Potential shelters that stay dry' }),
     el('table', {}, el('tbody', {}, rows(SHELTER_KINDS, (a) => `${a.n - a.hit} of ${a.n}`),
       by.worship ? el('tr', {}, el('td', { text: 'Places of worship (lower confidence)' }), el('td', { class: 'num', text: `${by.worship.n - by.worship.hit} of ${by.worship.n}` })) : null)));
@@ -488,6 +514,55 @@ function renderResponse(r) {
   }
 }
 
+function candidateList(cands, rate) {
+  const ul = el('ul', { class: 'cands' });
+  for (const [id, reach] of cands.slice(0, 3)) {
+    const f = featById.get(id);
+    if (!f) continue;
+    const p = f.properties, cap = capacityOf(p);
+    ul.append(el('li', {}, el('button', { type: 'button', class: 'link', onclick: () => focusSite({ p, coords: f.geometry.coordinates }), text: p.n }),
+      document.createTextNode(` · ${BUCKET[p.b] || KIND[p.k]}${cap ? ` · ~${nf.format(cap.n)} overnight (est.)` : ''} · within reach of ${approx(reach * rate)} of them`)));
+  }
+  return ul;
+}
+
+function renderGaps(box, r) {
+  const e = gapEntry();
+  box.append(el('h3', { class: 'sub-h', text: 'Shelter capacity gaps' }));
+  if (!e || r.people < 0.5) { box.append(el('p', { class: 'empty', text: 'No residents are in flooded areas in this scenario.' })); return; }
+  const rate = S.rate / 100;
+  box.append(el('p', { class: 'note', text: `If ${S.rate}% of the ${approx(r.people)} people in flooded areas need a public shelter (${approx(r.people * rate)} people), each going to the nearest dry pre-identified shelter within ${S.dist} km:` }));
+  const over = overCapacity();
+  const uncovered = Object.entries(e.u).map(([city, [n, cands]]) => ({ city, need: n * rate, cands })).filter((u) => u.need >= 5).sort((a, b) => b.need - a.need);
+  if (!over.length && !uncovered.length) {
+    box.append(el('p', { class: 'empty', text: `No pre-identified shelter is over capacity, and every affected area has one within ${S.dist} km.` }));
+    return;
+  }
+  if (over.length) {
+    box.append(el('p', { class: 'gap-h', text: `Over capacity (${over.length})` }));
+    for (const o of over) {
+      const p = featById.get(o.id).properties;
+      box.append(el('div', { class: 'gap' },
+        el('div', {}, el('button', { type: 'button', class: 'link strong', onclick: () => focusSite({ p, coords: featById.get(o.id).geometry.coordinates }), text: p.n }),
+          document.createTextNode(` · ${p.c}`)),
+        el('div', { class: 'sub2', text: `${approx(o.need)} would come here, room for ${nf.format(o.cap)}: short ${approx(o.short)}` }),
+        o.cands.length ? el('div', { class: 'sub2', text: 'Nearby sites to contact:' }) : null,
+        o.cands.length ? candidateList(o.cands, rate) : null));
+    }
+  }
+  if (uncovered.length) {
+    box.append(el('p', { class: 'gap-h', text: `No pre-identified shelter within ${S.dist} km (${uncovered.length} cit${uncovered.length === 1 ? 'y' : 'ies'})` }));
+    for (const u of uncovered) {
+      box.append(el('div', { class: 'gap' },
+        el('div', { class: 'strong', text: u.city }),
+        el('div', { class: 'sub2', text: `${approx(u.need)} people would need a shelter farther away` }),
+        u.cands.length ? el('div', { class: 'sub2', text: 'Nearby sites to contact:' }) : null,
+        u.cands.length ? candidateList(u.cands, rate) : null));
+    }
+  }
+  box.append(el('p', { class: 'note', text: 'Suggested sites are dry potential shelters within range of the residents who would need them, larger site types first. They have not been contacted or confirmed. The share needing a shelter is a planning assumption.' }));
+}
+
 function renderTop(r) {
   const box = $('#top');
   const o = OV[S.view];
@@ -520,7 +595,7 @@ function renderLegend() {
   ];
   const sites = [];
   if (S.show.fac) sites.push(el('div', { class: 'row' }, sw('dia', 'background:#4a3aa7'), el('span', { text: 'Critical facility' })), el('div', { class: 'row' }, sw('dia', 'background:#d03b3b'), el('span', { text: 'Critical facility, flooded' })));
-  if (S.show.pre) sites.push(el('div', { class: 'row' }, sw('house', 'background:#006b2e'), el('span', { text: 'Pre-identified shelter' })), el('div', { class: 'row' }, sw('house', 'background:#d03b3b'), el('span', { text: 'Pre-identified shelter, flooded' })));
+  if (S.show.pre) sites.push(el('div', { class: 'row' }, sw('house', 'background:#006b2e'), el('span', { text: 'Pre-identified shelter' })), el('div', { class: 'row' }, sw('house', 'background:#d03b3b'), el('span', { text: 'Pre-identified shelter, flooded' })), el('div', { class: 'row' }, sw('ring', ''), el('span', { text: 'Pre-identified shelter, over capacity' })));
   if (S.show.shelter) sites.push(el('div', { class: 'row' }, sw('sq', 'background:#008300'), el('span', { text: 'Key shelter (dry)' })), el('div', { class: 'row' }, sw('sq', 'background:#008300;opacity:0.3'), el('span', { text: 'Other potential shelter' })));
   if (S.show.worship) sites.push(el('div', { class: 'row' }, sw('sq', 'background:#fff;border-color:#008300'), el('span', { text: 'Place of worship (dry; faded if not key)' })));
   if (S.show.roads) sites.push(el('div', { class: 'row' }, sw('road', ''), el('span', { text: 'Flooded major road' })));
@@ -550,11 +625,12 @@ function renderControls() {
   for (const b of $('#view').children) b.setAttribute('aria-pressed', String(b.dataset.v === S.view));
   for (const box of document.querySelectorAll('[data-show]')) box.checked = S.show[box.dataset.show];
   for (const b of $('#dist').children) b.setAttribute('aria-pressed', String(+b.dataset.v === S.dist));
+  for (const b of $('#rate').children) b.setAttribute('aria-pressed', String(+b.dataset.v === S.rate));
 }
 
 function syncUrl() {
   const shown = Object.entries(SHOW_KEYS).filter(([, key]) => S.show[key]).map(([ch]) => ch).join('');
-  const p = new URLSearchParams({ b: S.bay, r: S.rain, c: S.low ? 1 : 0, v: S.view, s: shown, d: S.dist });
+  const p = new URLSearchParams({ b: S.bay, r: S.rain, c: S.low ? 1 : 0, v: S.view, s: shown, d: S.dist, u: S.rate });
   history.replaceState(null, '', `?${p}`);
 }
 
@@ -628,6 +704,8 @@ function showSitePopup(p, coords) {
     const size = s && REL[s[1]] ? ` Main building about ${nf.format(s[0])} sq ft, ${REL[s[1]]} for this type (from map building outlines).` : '';
     body.push(el('p', { text: `Type: ${BUCKET[p.b]}.${size}` }));
     const cap = capacityOf(p);
+    const assigned = p.k === 'pre' && !flooded ? gapEntry()?.a?.[p.id] : null;
+    if (assigned && cap) body.push(el('p', { class: assigned * S.rate / 100 > cap.n ? 'warn' : '', text: `About ${approx(assigned * S.rate / 100).replace('~', '')} people would come here (at ${S.rate}% shelter use, ${S.dist} km).` }));
     if (cap?.surveyed) body.push(el('p', { text: `Capacity: ${nf.format(cap.n)} overnight, ${nf.format(cap.evac)} for a short-term evacuation.${cap.role ? ` ${cap.role[0].toUpperCase() + cap.role.slice(1)} site.` : ''}` }));
     else if (cap) body.push(el('p', { text: `Estimated capacity: about ${nf.format(cap.n)} overnight (typical for this type: ${nf.format(cap.low)}–${nf.format(cap.high)}), based on pre-identified shelters of the same type.` }));
     else if (p.b) body.push(el('p', { text: 'No capacity estimate for this type of site yet.' }));
@@ -662,6 +740,7 @@ function buildControls() {
   $('#bay').addEventListener('input', (e) => { S.bay = +e.target.value; update(); });
   $('#low').addEventListener('change', (e) => { S.low = e.target.checked; update(); });
   $('#rain').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) { S.rain = +b.dataset.v; update(); } });
+  $('#rate').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) { S.rate = +b.dataset.v; update({ flood: false }); } });
   $('#dist').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) { S.dist = +b.dataset.v; update({ flood: false }); } });
   for (const box of document.querySelectorAll('[data-show]')) {
     box.addEventListener('change', () => {
@@ -685,7 +764,8 @@ for (const r of REGIONS) $('#regions').append(el('button', { type: 'button', cla
 $('#legend').open = matchMedia('(min-width: 821px)').matches;
 
 map.on('load', async () => {
-  [tracts, scen, points, roadsSummary, shelterReach, siteSize, capacity] = await Promise.all([getJSON('data/tracts.geojson'), getJSON('data/scenarios.json'), getJSON('data/points.json'), getJSON('data/roads_summary.json').catch(() => null), getJSON('data/shelter_reach.json').catch(() => null), getJSON('data/site_size.json').catch(() => ({})), getJSON('data/capacity.json').catch(() => null)]);
+  [tracts, scen, points, roadsSummary, shelterReach, siteSize, capacity, gaps] = await Promise.all([getJSON('data/tracts.geojson'), getJSON('data/scenarios.json'), getJSON('data/points.json'), getJSON('data/roads_summary.json').catch(() => null), getJSON('data/shelter_reach.json').catch(() => null), getJSON('data/site_size.json').catch(() => ({})), getJSON('data/capacity.json').catch(() => null), getJSON('data/capacity_gaps.json').catch(() => null)]);
+  for (const f of points.features) featById.set(f.properties.id, f);
   for (const f of tracts.features) {
     byId.set(f.properties.GEOID, f.properties);
     bboxOf.set(f.properties.GEOID, bboxFromGeometry(f.geometry));

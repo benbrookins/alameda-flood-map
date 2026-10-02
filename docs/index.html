@@ -65,6 +65,17 @@
         </div>
         <p class="hint">Key shelters are the dry sites closest to the most affected residents in each city. Other potential shelters are faded. 1 km is roughly a 15-minute walk; 5 km assumes a ride.</p>
       </div>
+
+      <div class="control">
+        <span class="label" id="rateLabel">Share of affected residents needing a shelter</span>
+        <div class="seg" role="group" aria-labelledby="rateLabel" id="rate">
+          <button type="button" data-v="10">10%</button>
+          <button type="button" data-v="20">20%</button>
+          <button type="button" data-v="50">50%</button>
+          <button type="button" data-v="100">100%</button>
+        </div>
+        <p class="hint">A planning assumption: many displaced residents stay with family or friends. Used for shelter capacity gaps.</p>
+      </div>
     </section>
 
     <section id="summary" aria-live="polite"></section>

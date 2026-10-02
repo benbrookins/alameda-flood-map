@@ -315,7 +315,16 @@ Status key: ☐ to do, ⚠ verify availability or licensing first.
    surveyed sites); leave-one-out error is ~27% median. Footprints did not
    improve the estimate, so they are used only for size classes. No estimate
    yet for elementary schools, libraries, or small schools.
-   **Full run order:** `09` → `04` → `07` → `04` → `06` → `08` → `10`.
+   **Capacity gaps** (`11_capacity_gaps.py`, `capacity_gaps.json`): for each
+   scenario and distance, flooded residents go to the nearest dry
+   pre-identified shelter in range; the page applies a shelter-use share
+   (10/20/50/100%, default 20%, a placeholder pending expert input) and lists
+   over-capacity shelters (red ring on the map), cities with no
+   pre-identified shelter in range, and nearby dry potential sites to
+   contact (excluding unnamed sites and sites within 250 m of a
+   pre-identified shelter; ranked by residents reached, then larger types
+   and buildings).
+   **Full run order:** `09` → `04` → `07` → `04` → `06` → `08` → `10` → `11`.
 6. **Polish and share.** Disclaimers, sources, mobile layout, bundling,
    GitHub Pages if needed. *(Sonnet)*
 
