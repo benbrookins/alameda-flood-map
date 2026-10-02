@@ -9,28 +9,16 @@ Length is measured on the flooded pieces in EPSG:3310 meters.
 """
 import json
 from collections import defaultdict
-from pathlib import Path
 
 import geopandas as gpd
 import numpy as np
 import shapely
 from shapely.geometry import LineString
 
-ROOT = Path(__file__).resolve().parent.parent
-RAW = ROOT / "data" / "raw"
-FLOOD = ROOT / "data" / "work" / "flood_full.gpkg"
-OUT = ROOT / "docs" / "data"
-CRS = 3310
-LAYERS = [f"bay_{i}ft" for i in range(1, 5)] + [f"low_{i}ft" for i in range(1, 5)] + ["fema_100yr", "fema_500yr"]
+from common import CRS, DOCS as OUT, FLOOD, LAYERS, RAW, county_land, scenario_layers
 CLASS = {"motorway": "fwy", "trunk": "fwy", "primary": "art", "secondary": "art", "tertiary": "col"}
 MIN_PIECE_M = 15
 SIMPLIFY_M = 4
-
-
-def county_land():
-    t = gpd.read_file(f"zip://{RAW / 'census' / 'tracts_ca.zip'}").to_crs(CRS)
-    land = t[t.COUNTYFP == "001"].union_all()
-    return land if shapely.is_valid(land) else shapely.make_valid(land)
 
 
 def label(tags):
@@ -89,8 +77,7 @@ def main():
     for b in range(5):
         for r in (0, 100, 500):
             for c in (0, 1):
-                need = ([f"bay_{b}ft"] if b else []) + ([f"low_{b}ft"] if b and c else []) + \
-                       ([{100: "fema_100yr", 500: "fema_500yr"}[r]] if r else [])
+                need = scenario_layers(f"b{b}_r{r}_c{c}")
                 by_way = defaultdict(list)
                 for layer in need:
                     for i, geom in pieces[layer].items():

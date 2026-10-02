@@ -17,45 +17,26 @@ Outputs: docs/data/site_size.json {id: [main_building_sqft, rel]} with rel L lar
 """
 import json
 import time
-from pathlib import Path
 
 import geopandas as gpd
 import numpy as np
 import pandas as pd
-import requests
-import shapely
 from shapely.geometry import LineString, Polygon
 from shapely.ops import polygonize, unary_union
 
-ROOT = Path(__file__).resolve().parent.parent
-RAW = ROOT / "data" / "raw" / "osm"
-DOCS = ROOT / "docs" / "data"
-CRS = 3310
+from common import COUNTY_BBOX as BBOX, CRS, DOCS, RAW as RAW_ROOT, WORK, overpass
+
+RAW = RAW_ROOT / "osm"
 SQFT = 10.7639
 NEAR_M = 60
 GYM_MIN_SQFT = 5000
 CAMPUS_BUCKETS = {"college", "high_school", "middle_school", "elementary_school", "small_school"}
-HEADERS = {"User-Agent": "alameda-flood-map/0.1 (research dashboard)"}
-SERVERS = ["https://overpass-api.de/api/interpreter", "https://overpass.private.coffee/api/interpreter"]
-BBOX = "37.44,-122.38,37.93,-121.45"
 SITE_TYPES = {
     "college": {"college", "university"}, "high_school": {"school"}, "middle_school": {"school"},
     "elementary_school": {"school"}, "small_school": {"school"}, "community_center": {"community_centre"},
     "senior_center": {"community_centre", "social_facility"}, "library": {"library"}, "worship": {"place_of_worship"},
 }
 GYM_WORDS = ("gym", "multipurpose", "multi-purpose", "mpr", "pavilion", "field house", "fieldhouse", "sports")
-
-
-def overpass(query):
-    for attempt in range(8):
-        try:
-            r = requests.post(SERVERS[0 if attempt % 4 else attempt // 4 % 2], data={"data": query}, headers=HEADERS, timeout=400)
-            r.raise_for_status()
-            return r.json()["elements"]
-        except (requests.RequestException, ValueError) as e:
-            print(f"  overpass retry ({str(e)[:50]})", flush=True)
-            time.sleep(5 * (attempt + 1))
-    raise RuntimeError("Overpass failed")
 
 
 def cached(path, fetch):
@@ -189,7 +170,7 @@ def main():
     rv["rel"] = np.where(rv.flag != "", "?", np.where(rv.main_sqft > hi, "L", np.where(rv.main_sqft < lo, "S", "T")))
     out = {int(r.id): [int(round(r.main_sqft, -2)) if r.rel != "?" else 0, r.rel] for r in rv.itertuples()}
     (DOCS / "site_size.json").write_text(json.dumps(out, separators=(",", ":")))
-    rv.to_csv(ROOT / "data" / "work" / "site_size_review.csv", index=False)
+    rv.to_csv(WORK / "site_size_review.csv", index=False)
 
     print("\nmethod:", rv.method.str.split("/").str[0].value_counts().to_dict(), "| gym used:", int(rv.method.str.endswith("gym").sum()))
     print("flags:", rv.flag.replace("", "ok").value_counts().to_dict())

@@ -1,7 +1,7 @@
 """Critical facilities and shelter sites, each tagged with the flood layers that reach it.
 
 Output: docs/data/points.json (GeoJSON). Properties: id, k kind, n name, c city, m flood bitmask,
-and for shelter sites b bucket and t rough size tier.
+and for shelter sites b (bucket: high_school, library, ...).
 Mask bits: 0-3 = bay_1..4ft, 4-7 = low_1..4ft, 8 = fema_100yr, 9 = fema_500yr.
 A site counts as flooded when the flood layers in the chosen scenario cover its point location.
 
@@ -10,30 +10,20 @@ data/work/points_generic.json from a first run of this script). Generic sites wi
 pre-identified shelter are treated as the same place and dropped.
 """
 import json
-from pathlib import Path
 
 import geopandas as gpd
 import numpy as np
 import pandas as pd
 import shapely
 
-ROOT = Path(__file__).resolve().parent.parent
-RAW = ROOT / "data" / "raw"
-FLOOD = ROOT / "data" / "work" / "flood_full.gpkg"
-DOCS = ROOT / "docs" / "data"
+from common import CRS, DOCS, FLOOD, LAYERS, RAW, ROOT, WORK, county_land
+
 OUT = DOCS / "points.json"
 PRE_FILE = RAW / "shelters" / "geocoded.csv"
-OFFICIAL = ROOT / "data" / "work" / "official_facilities.csv"  # from 09_official_facilities.py
-CRS = 3310
-LAYERS = [f"bay_{i}ft" for i in range(1, 5)] + [f"low_{i}ft" for i in range(1, 5)] + ["fema_100yr", "fema_500yr"]
+OFFICIAL = WORK / "official_facilities.csv"  # from 09_official_facilities.py
 SHELTER_KINDS = {"school", "community", "library", "worship"}
 SAME_SITE_M = 120
 
-# Shelter buckets and their rough size tier: L larger, M medium, S smaller, V varies widely.
-BUCKET_TIER = {
-    "college": "L", "high_school": "L", "middle_school": "M", "elementary_school": "M", "small_school": "S",
-    "community_center": "M", "senior_center": "M", "library": "S", "worship": "V",
-}
 SCHOOL_BUCKET = {
     "High Schools (Public)": "high_school", "K-12 Schools (Public)": "high_school",
     "Intermediate/Middle Schools (Public)": "middle_school", "Elementary Schools (Public)": "elementary_school",
@@ -64,12 +54,6 @@ def bucket_from_name(name, kind):
     if "senior" in n or "age well" in n:
         return "senior_center"
     return "community_center"
-
-
-def county_land():
-    t = gpd.read_file(f"zip://{RAW / 'census' / 'tracts_ca.zip'}").to_crs(CRS)
-    land = t[t.COUNTYFP == "001"].union_all()
-    return land if shapely.is_valid(land) else shapely.make_valid(land)
 
 
 def osm_points(path, classify):
@@ -187,7 +171,7 @@ def write(g, path):
     for r, p in zip(g.itertuples(), out.geometry):
         props = {"id": int(r.Index), "k": r.k, "n": r.n, "m": int(r.m), "c": r.c}
         if isinstance(r.b, str):
-            props.update(b=r.b, t=BUCKET_TIER[r.b])
+            props["b"] = r.b
         if isinstance(getattr(r, "st", None), str):
             props.update(st=r.st, cap=int(r.cap))
         feats.append({"type": "Feature", "geometry": {"type": "Point", "coordinates": [round(p.x, 5), round(p.y, 5)]},

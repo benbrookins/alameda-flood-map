@@ -52,23 +52,26 @@ County, CA. Core features:
   installed and matching CLI version (2.1.286).
 - No Node.js/npm installed on this machine.
 
-## Plan (decided 2026-10-01)
-See **PLAN.md** for the architecture and data checklist. Key decisions:
+## Current state (updated 2026-10-02)
+See **README.md** for how to run things and **PLAN.md** for the history of
+decisions and data sources.
 - Focus is near-term emergency response for the 2026–27 El Niño.
 - Hosting: public GitHub Pages at https://benbrookins.github.io/alameda-flood-map/
-  (serves `docs/` from `main`; pushing to `main` redeploys in about a minute). This repo is public, so describe the
-  timeframe as "near-term" in all page text, docs, and commit messages. Don't
-  name specific target months.
-- Main controls: a Bay water level slider (NOAA maps, normal to +4 ft;
-  ART is parked as an optional later cross-check, see PLAN.md),
-  a FEMA rain/creek slider, and a "rain during high tide" toggle.
-- Tsunami and landslide layers are deferred.
-- Python offline pipeline using uv; front end is MapLibre GL JS in `docs/`
-  (served by GitHub Pages) loading data from `docs/data/`.
-- Who is affected is estimated with 2020 Census block populations, then
-  rolled up to ACS tracts.
-- Status: phases 1–4 are done (setup, flood layers, census exposure, map
-  page). Next is phase 5 (critical facilities, shelters, cut roads), then
-  phase 6 (polish and GitHub Pages). See PLAN.md.
-- Run the page locally with `python3 -m http.server 8765 --directory docs`.
-  The raw data and `.env` (Census API key) are gitignored.
+  (serves `docs/` from `main`; pushing to `main` redeploys in about a
+  minute). This repo is public, so describe the timeframe as "near-term" in
+  all page text, docs, and commit messages. Don't name specific target months.
+- Some inputs were shared privately and live only in gitignored
+  `data/raw/shelters/` (pre-identified shelter list, capacities). Never name
+  their source in public files; the page calls them "pre-identified
+  shelters".
+- Built: Bay water level (NOAA, +1 to +4 ft), FEMA zones, low-lying areas,
+  socioeconomic shading, critical facilities (state licensing lists),
+  pre-identified and potential shelters with capacity, key shelters,
+  shelter capacity gaps and uncovered areas, flooded roads, region buttons.
+- Distances are straight-line. Road-network access (cut-off areas, travel
+  distance) is parked for a planning session: draft in gitignored
+  `data/work/parked_road_network/`.
+- Deferred: ART flood maps (parked), tsunami, landslides.
+- Shared pipeline code is in `pipeline/common.py`. Run the page locally with
+  `python3 -m http.server 8765 --directory docs`. The raw data and `.env`
+  (Census API key) are gitignored.

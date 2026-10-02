@@ -12,14 +12,14 @@ OpenStreetMap for hospitals, care facilities, and dialysis. Run before 04_points
 import csv
 import io
 import time
-from pathlib import Path
 
 import pandas as pd
 import requests
 
-ROOT = Path(__file__).resolve().parent.parent
-DIR = ROOT / "data" / "raw" / "facilities"
-OUT = ROOT / "data" / "work" / "official_facilities.csv"
+from common import HEADERS, RAW, ROOT, WORK
+
+DIR = RAW / "facilities"
+OUT = WORK / "official_facilities.csv"
 GEOCACHE = DIR / "ccl_geocoded.csv"
 
 CDPH_TYPES = {  # FAC_FDR -> (kind, subtype)
@@ -81,7 +81,7 @@ def geocode(df):
         for i in retry.index:
             r = addr.loc[cache.at[i, "id"]]
             hit = requests.get("https://nominatim.openstreetmap.org/search", timeout=60,
-                               headers={"User-Agent": "alameda-flood-map/0.1 (research dashboard)"},
+                               headers=HEADERS,
                                params={"street": r.facility_address, "city": r.facility_city, "state": "CA",
                                        "country": "USA", "format": "jsonv2", "limit": 1}).json()
             time.sleep(1.1)

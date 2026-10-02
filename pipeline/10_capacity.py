@@ -12,14 +12,14 @@ Outputs (no names or contacts from the survey file):
   docs/data/capacity.json  {"types": {bucket: {overnight, low, high, evacuation, surveyed}}, "sites": {id: [overnight, evacuation, role]}}
 """
 import json
-from pathlib import Path
 
 import pandas as pd
 
-ROOT = Path(__file__).resolve().parent.parent
-SURVEY = ROOT / "data" / "raw" / "shelters" / "surveyed.csv"
-POINTS = ROOT / "docs" / "data" / "points.json"
-OUT = ROOT / "docs" / "data" / "capacity.json"
+from common import DOCS, RAW
+
+SURVEY = RAW / "shelters" / "surveyed.csv"
+POINTS = DOCS / "points.json"
+OUT = DOCS / "capacity.json"
 MIN_SURVEYED = 4
 
 

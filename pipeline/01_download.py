@@ -7,13 +7,9 @@ import json
 import os
 import sys
 import time
-from pathlib import Path
-
 import requests
 
-ROOT = Path(__file__).resolve().parent.parent
-RAW = ROOT / "data" / "raw"
-HEADERS = {"User-Agent": "alameda-flood-map/0.1 (research dashboard)"}
+from common import COUNTY_BBOX, HEADERS, RAW, ROOT, overpass
 
 ART_POLY = "https://geodata.dot.ca.gov/arcgis/rest/services/CHhqenvi/DEA_BCDC_polygon_SLR/FeatureServer"
 ART_ROADS = "https://gisdata.dot.ca.gov/arcgis/rest/services/CHhqenvi/DEA_BCDC_SLR/FeatureServer"
@@ -154,59 +150,42 @@ out center tags;
 """
 
 
+def save_overpass(query, out_name):
+    elements = overpass(query)
+    print(f"  {len(elements)} elements")
+    save(RAW / "osm" / out_name, json.dumps({"elements": elements}))
+
+
 def osm():
     print("OSM amenities via Overpass")
-    r = requests.post("https://overpass-api.de/api/interpreter", data={"data": OSM_QUERY}, headers=HEADERS, timeout=240)
-    r.raise_for_status()
-    print(f"  {len(r.json()['elements'])} elements")
-    save(RAW / "osm" / "amenities.json", r.content)
+    save_overpass(OSM_QUERY, "amenities.json")
 
 
 FACILITY_QUERY = """
-[out:json][timeout:240][bbox:37.44,-122.38,37.93,-121.45];
+[out:json][timeout:240][bbox:{bbox}];
 (
   nwr["amenity"~"^(hospital|nursing_home)$"];
   nwr["amenity"="social_facility"]["social_facility"~"^(assisted_living|nursing_home|group_home)$"];
   nwr["healthcare"="dialysis"];
 );
 out center tags;
-"""
+""".replace("{bbox}", COUNTY_BBOX)
 
 ROADS_QUERY = """
-[out:json][timeout:300][bbox:37.44,-122.38,37.93,-121.45];
+[out:json][timeout:300][bbox:{bbox}];
 way["highway"~"^(motorway|trunk|primary|secondary|tertiary)(_link)?$"];
 out geom tags;
-"""
-
-
-OVERPASS_SERVERS = ["https://overpass-api.de/api/interpreter", "https://overpass.private.coffee/api/interpreter",
-                    "https://overpass.kumi.systems/api/interpreter"]
-
-
-def overpass(query, out_name):
-    for attempt in range(8):
-        url = OVERPASS_SERVERS[0 if attempt % 4 else attempt // 4 % len(OVERPASS_SERVERS)]
-        try:
-            r = requests.post(url, data={"data": query}, headers=HEADERS, timeout=420)
-            r.raise_for_status()
-            n = len(r.json()["elements"])
-            print(f"  {n} elements from {url.split('/')[2]}")
-            save(RAW / "osm" / out_name, r.content)
-            return
-        except (requests.RequestException, ValueError) as e:
-            print(f"  {url.split('/')[2]} failed ({str(e)[:60]}); retrying")
-            time.sleep(5 * (attempt + 1))
-    raise RuntimeError(f"Overpass failed for {out_name}")
+""".replace("{bbox}", COUNTY_BBOX)
 
 
 def osm_facilities():
-    print("OSM hospitals, care homes, dialysis")
-    overpass(FACILITY_QUERY, "facilities.json")
+    print("OSM hospitals, care homes, dialysis (fallback; official lists come from state_facilities)")
+    save_overpass(FACILITY_QUERY, "facilities.json")
 
 
 def osm_roads():
     print("OSM major roads")
-    overpass(ROADS_QUERY, "roads.json")
+    save_overpass(ROADS_QUERY, "roads.json")
 
 
 STATE_FACILITY_FILES = {

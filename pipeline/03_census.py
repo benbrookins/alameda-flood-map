@@ -11,20 +11,13 @@ Outputs: docs/data/tracts.geojson, docs/data/scenarios.json
 import json
 import math
 import time
-from pathlib import Path
-
 import geopandas as gpd
 import numpy as np
 import pandas as pd
 import rasterio.features
 from rasterio.transform import from_origin
 
-ROOT = Path(__file__).resolve().parent.parent
-RAW = ROOT / "data" / "raw"
-BUILD = ROOT / "docs" / "data"
-WORK = ROOT / "data" / "work"
-FLOOD = WORK / "flood_full.gpkg"
-CRS = 3310
+from common import CRS, DOCS as BUILD, FLOOD, RAW, WORK
 CELL = 10  # meters
 BAY_LEVELS = [0, 1, 2, 3, 4]
 RAIN = {0: None, 100: "fema_100yr", 500: "fema_500yr"}

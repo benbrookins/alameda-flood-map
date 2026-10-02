@@ -7,14 +7,11 @@ Output: docs/data/shelter_reach.json  {scenario: {site id: [people, no-car] for 
 Sites with fewer than MIN_STORE affected residents within 5 km in a scenario are left out.
 """
 import json
-from pathlib import Path
 
 import geopandas as gpd
 import numpy as np
 
-ROOT = Path(__file__).resolve().parent.parent
-WORK = ROOT / "data" / "work"
-DOCS = ROOT / "docs" / "data"
+from common import DOCS, WORK
 SHELTER_KINDS = {"pre", "school", "community", "library", "worship"}
 RADII = (1000, 2000, 5000)
 MIN_STORE = 50

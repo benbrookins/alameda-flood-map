@@ -11,13 +11,13 @@ import difflib
 import json
 import re
 import time
-from pathlib import Path
 
 import requests
 
-ROOT = Path(__file__).resolve().parent.parent
-DIR = ROOT / "data" / "raw" / "shelters"
-HEADERS = {"User-Agent": "alameda-flood-map/0.1 (research dashboard)"}
+from common import HEADERS, RAW, WORK
+
+DIR = RAW / "shelters"
+SEARCH_CACHE = DIR / "nominatim_cache.json"
 VIEWBOX = "-122.38,37.93,-121.45,37.44"
 CITY_PLACES = {"Castro Valley": {"Castro Valley", "Unincorporated"}, "San Lorenzo": {"San Lorenzo", "Ashland", "Unincorporated"},
                "San Leandro": {"San Leandro", "Ashland", "Unincorporated"}, "Sunol": {"Sunol", "Unincorporated"},
@@ -58,21 +58,25 @@ def norm(s):
     return " ".join(w for w in s.split() if w not in DROP)
 
 
-def nominatim(name, city):
+def nominatim(name, city, cache):
     queries = [f"{q}, California" for q in SEARCH_AS.get(name, [])] or \
         [f"{name}, {city}, California", f"{re.sub(r'[(].*?[)]', '', name)}, {city}, California"]
     for q in queries:
-        r = requests.get("https://nominatim.openstreetmap.org/search", headers=HEADERS, timeout=60,
-                         params={"q": q, "format": "jsonv2", "limit": 1, "viewbox": VIEWBOX, "bounded": 1})
-        time.sleep(1.1)
-        if r.ok and r.json():
-            h = r.json()[0]
+        if q not in cache:
+            r = requests.get("https://nominatim.openstreetmap.org/search", headers=HEADERS, timeout=60,
+                             params={"q": q, "format": "jsonv2", "limit": 1, "viewbox": VIEWBOX, "bounded": 1})
+            time.sleep(1.1)  # Nominatim usage policy: at most 1 request per second
+            r.raise_for_status()
+            cache[q] = r.json()[:1]
+        if cache[q]:
+            h = cache[q][0]
             return float(h["lat"]), float(h["lon"]), h["display_name"][:90]
     return None
 
 
 def main():
-    pts = json.load(open(ROOT / "data" / "work" / "points_generic.json"))["features"]
+    pts = json.load(open(WORK / "points_generic.json"))["features"]
+    cache = json.loads(SEARCH_CACHE.read_text()) if SEARCH_CACHE.exists() else {}
     cands = [f for f in pts if f["properties"]["k"] in ("school", "community", "library", "worship")]
     overrides = {}
     if (DIR / "overrides.csv").exists():
@@ -102,11 +106,12 @@ def main():
             lon, lat = best["geometry"]["coordinates"]
             out.append([city, name, lat, lon, f"match {score:.2f}", best["properties"]["n"]])
             continue
-        hit = nominatim(name, city)
+        hit = nominatim(name, city, cache)
         if hit:
             out.append([city, name, hit[0], hit[1], "nominatim", hit[2]])
         else:
             out.append([city, name, "", "", "NOT FOUND", f"closest point: {best['properties']['n'] if best else ''} ({score:.2f})"])
+    SEARCH_CACHE.write_text(json.dumps(cache))
     with open(DIR / "geocoded.csv", "w", newline="") as fh:
         w = csv.writer(fh)
         w.writerow(["city", "name", "lat", "lon", "source", "matched"])

@@ -15,16 +15,13 @@ Outputs: docs/data/uncovered/<scenario>.geojson  each separate area of blocks wh
                     "c": {pre id: [[site id, reach], ...]}}}}
 """
 import json
-from pathlib import Path
 
 import geopandas as gpd
 import numpy as np
 import pandas as pd
 import shapely
 
-ROOT = Path(__file__).resolve().parent.parent
-WORK = ROOT / "data" / "work"
-DOCS = ROOT / "docs" / "data"
+from common import DOCS, RAW, ROOT, WORK, scenario_mask
 RADII_KM = (1, 2, 5)
 POTENTIAL = {"school", "community", "library", "worship"}
 TOP = 5
@@ -34,23 +31,9 @@ TYPE_RANK = {b: i for i, b in enumerate(["college", "high_school", "middle_schoo
                                          "elementary_school", "small_school", "library", "worship"])}
 
 
-def bitmask(key):
-    b, r, c = (int(x[1:]) for x in key.split("_"))
-    m = 0
-    if b:
-        m |= 1 << (b - 1)
-        if c:
-            m |= 1 << (4 + b - 1)
-    if r >= 100:
-        m |= 256
-    if r >= 500:
-        m |= 512
-    return m
-
-
 def block_shapes(bx, by):
     """Block polygons (EPSG:3310) in the same order as block_flood.npz (the block file's order, as in 03_census.py)."""
-    raw = ROOT / "data" / "raw" / "census"
+    raw = RAW / "census"
     rows = json.load(open(raw / "block_pop_2020.json"))
     pop = pd.DataFrame(rows[1:], columns=rows[0])
     pop["GEOID20"] = pop.state + pop.county + pop.tract + pop.block
@@ -113,7 +96,7 @@ def main():
     out = {}
     for key in keys:
         fl = F[keys.index(key)]
-        m = bitmask(key)
+        m = scenario_mask(key)
         dry_pre = (masks[pre] & m) == 0
         dry_pot = (masks[pot] & m) == 0
         flooded = fl > 0

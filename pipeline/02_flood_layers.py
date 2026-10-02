@@ -8,16 +8,12 @@ Layers: bay_{1..4}ft (ocean-connected), low_{1..4}ft (isolated low-lying areas),
 fema_100yr (1% annual chance), fema_500yr (0.2% zone plus the 1% zone).
 """
 import time
-from pathlib import Path
-
 import geopandas as gpd
 import shapely
 
-ROOT = Path(__file__).resolve().parent.parent
-RAW = ROOT / "data" / "raw"
-WORK = ROOT / "data" / "work"
-WEB = ROOT / "docs" / "data" / "flood"
-CRS = 3310  # California Albers, meters
+from common import CRS, DOCS, RAW, WORK, county_land as county_outline
+
+WEB = DOCS / "flood"
 LEVELS_FT = [1, 2, 3, 4]
 SIMPLIFY_M = 8
 MIN_AREA_M2 = 500  # drop specks from the web copy only
@@ -38,10 +34,8 @@ def valid_all(geoms):
 
 
 def county_land():
-    t = gpd.read_file(f"zip://{RAW / 'census' / 'tracts_ca.zip'}").to_crs(CRS)
-    t = t[t.COUNTYFP == "001"]
-    return valid(t.union_all()), tuple(t.to_crs(4326).total_bounds)
-
+    land = county_outline()
+    return land, tuple(gpd.GeoSeries([land], crs=CRS).to_crs(4326).total_bounds)
 
 def clip_union(gdf, county):
     geoms = valid_all(gdf.geometry.values)
