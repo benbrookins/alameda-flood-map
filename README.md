@@ -44,5 +44,5 @@ API step needs a free key in `.env` as `CENSUS_API_KEY`. Run each step with `uv 
 | 10 | `10_capacity.py` | Shelter capacity (needs gitignored inputs) |
 | 11 | `11_capacity_gaps.py` | Shelter capacity gaps and uncovered areas |
 
-Shared paths and helpers are in `pipeline/common.py`, including the list of Bay water levels (`BAY_LEVELS`). To add a level, add it there and to `BAY_LEVELS` in `docs/app.js`, append its two layers to `LAYERS` (new bitmask bits), then rerun from step 2. `12_outreach_list.py` writes a private outreach spreadsheet to `data/work/`. Sources and methods are described on the page under
+Shared paths and helpers are in `pipeline/common.py`, including the list of Bay water levels (`BAY_LEVELS`). To add a level: add it there, append its two layers to `LAYERS` (new bitmask bits), add it to `BAY_LEVELS`, `BAY_HINTS`, `BAY_BIT`, and `LOW_BIT` in `docs/app.js` and to the slider in `docs/index.html`, then rerun from step 2. `12_outreach_list.py` writes a private outreach spreadsheet to `data/work/`. Sources and methods are described on the page under
 "About these numbers".
