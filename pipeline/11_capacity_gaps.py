@@ -7,15 +7,19 @@ the chosen share), and for each city with uncovered residents, the dry potential
 residents are ranked by how many of them they could reach.
 
 Run after 04_points.py, 06_key_shelters.py and 10_capacity.py.
-Output: docs/data/capacity_gaps.json
+Outputs: docs/data/uncovered/<scenario>.geojson  outlines of the blocks whose flooded residents have no pre-identified
+         shelter in range (per km and city, with resident counts), for the map
+        docs/data/capacity_gaps.json
   {scenario: {km: {"a": {pre id: assigned}, "u": {city: [uncovered, [[site id, reach], ...], [lon, lat]]},
-                    "ut": {tract GEOID: uncovered}, "c": {pre id: [[site id, reach], ...]}}}}
+                    "c": {pre id: [[site id, reach], ...]}}}}
 """
 import json
 from pathlib import Path
 
 import geopandas as gpd
 import numpy as np
+import pandas as pd
+import shapely
 
 ROOT = Path(__file__).resolve().parent.parent
 WORK = ROOT / "data" / "work"
@@ -43,6 +47,22 @@ def bitmask(key):
     return m
 
 
+def block_shapes(bx, by):
+    """Block polygons (EPSG:3310) in the same order as block_flood.npz (the block file's order, as in 03_census.py)."""
+    raw = ROOT / "data" / "raw" / "census"
+    rows = json.load(open(raw / "block_pop_2020.json"))
+    pop = pd.DataFrame(rows[1:], columns=rows[0])
+    pop["GEOID20"] = pop.state + pop.county + pop.tract + pop.block
+    pop[["P1_001N", "H1_001N"]] = pop[["P1_001N", "H1_001N"]].astype(int)
+    b = gpd.read_file(f"zip://{raw / 'blocks_alameda.zip'}")[["GEOID20", "geometry"]].to_crs(3310)
+    b = b.merge(pop[["GEOID20", "P1_001N", "H1_001N"]], on="GEOID20", how="left", validate="1:1")
+    b = b[(b.P1_001N > 0) | (b.H1_001N > 0)].reset_index(drop=True)
+    pts = b.geometry.representative_point()
+    off = np.hypot(pts.x.values - bx, pts.y.values - by)
+    assert len(b) == len(bx) and off.max() < 1.0, f"block order mismatch (max offset {off.max():.0f} m)"
+    return b.geometry.values
+
+
 def main():
     z = np.load(WORK / "block_flood.npz")
     keys, F = list(z["keys"]), z["pop"].astype(np.float64)
@@ -50,6 +70,8 @@ def main():
     tr = gpd.read_file(DOCS / "tracts.geojson")
     city = np.array([dict(zip(tr.GEOID.str[5:], tr.place)).get(t, "Unincorporated") for t in tract])
     tract_codes, tract_idx = np.unique(tract, return_inverse=True)
+    bgeom = block_shapes(bx, by)
+    (DOCS / "uncovered").mkdir(parents=True, exist_ok=True)
 
     def to_lonlat(x, y):
         p = gpd.GeoSeries(gpd.points_from_xy([x], [y]), crs=3310).to_crs(4326).iloc[0]
@@ -94,10 +116,11 @@ def main():
         dry_pot = (masks[pot] & m) == 0
         flooded = fl > 0
         out[key] = {}
+        areas = []
         for km in RADII_KM:
             R = km * 1000
             near_pot = (D_pot <= R).astype(np.float32)
-            entry = {"a": {}, "u": {}, "ut": {}, "c": {}}
+            entry = {"a": {}, "u": {}, "c": {}}
             if flooded.any() and dry_pre.any():
                 Dd = np.where(dry_pre[None, :], D_pre, np.inf)
                 nearest, dist = Dd.argmin(axis=1), Dd.min(axis=1)
@@ -120,10 +143,16 @@ def main():
                     lon, lat = to_lonlat((bx[sel] * w).sum() / w.sum(), (by[sel] * w).sum() / w.sum())
                     entry["u"][cty] = [int(round(total)), candidates(near_pot, dry_pot, np.where(sel, fl, 0.0).astype(np.float32)),
                                        [round(lon, 5), round(lat, 5)]]
-            if unc.any():
-                per = np.bincount(tract_idx[unc], weights=fl[unc], minlength=len(tract_codes))
-                entry["ut"] = {f"06001{tract_codes[t]}": int(round(per[t])) for t in np.flatnonzero(per >= 1)}
+            for cty in np.unique(city[unc]):
+                sel = unc & (city == cty)
+                if fl[sel].sum() >= 1:
+                    shape = shapely.simplify(shapely.union_all(shapely.buffer(bgeom[sel], 25)), 20)
+                    areas.append({"km": km, "city": str(cty), "people": int(round(fl[sel].sum())), "geometry": shape})
             out[key][km] = entry
+        path = DOCS / "uncovered" / f"{key}.geojson"
+        path.unlink(missing_ok=True)
+        if areas:
+            gpd.GeoDataFrame(areas, geometry="geometry", crs=3310).to_crs(4326).to_file(path, driver="GeoJSON", COORDINATE_PRECISION=5)
     path = DOCS / "capacity_gaps.json"
     path.write_text(json.dumps(out, separators=(",", ":"), ensure_ascii=False))
     print(f"wrote {path.relative_to(ROOT)} ({path.stat().st_size / 1e3:.0f} KB)")

@@ -153,8 +153,9 @@ function addFloodLayers() {
   fema('fema100', [1, 0], 1.2, 0.12);
   map.addLayer({ id: 'low-fill', type: 'fill', source: 'low', paint: { 'fill-color': t.low, 'fill-opacity': 0.65 } }, before);
   map.addLayer({ id: 'bay-fill', type: 'fill', source: 'bay', paint: { 'fill-color': t.bay, 'fill-opacity': 0.72 } }, before);
-  map.addLayer({ id: 'uncov-fill', type: 'fill', source: 'tracts', filter: ['in', ['get', 'GEOID'], ['literal', []]], paint: { 'fill-color': '#7b1fa2', 'fill-opacity': 0.12 } }, before);
-  map.addLayer({ id: 'uncov-line', type: 'line', source: 'tracts', filter: ['in', ['get', 'GEOID'], ['literal', []]], paint: { 'line-color': '#7b1fa2', 'line-width': 2.2, 'line-dasharray': [2, 1.5] } }, before);
+  map.addSource('uncov-areas', { type: 'geojson', data: EMPTY });
+  map.addLayer({ id: 'uncov-fill', type: 'fill', source: 'uncov-areas', paint: { 'fill-color': '#7b1fa2', 'fill-opacity': 0.35 } }, before);
+  map.addLayer({ id: 'uncov-line', type: 'line', source: 'uncov-areas', paint: { 'line-color': '#4a148c', 'line-width': 2.5, 'line-dasharray': [2, 1.2] } }, before);
   addSiteLayers(before);
   map.addSource('uncov-pts', { type: 'geojson', data: EMPTY });
   map.addLayer({
@@ -310,17 +311,19 @@ function overCapacity() {
   return out.sort((a, b) => b.short - a.short);
 }
 
-function applyUncovered() {
-  const e = gapEntry(), rate = S.rate / 100, on = S.show.pre && e;
-  const ids = on ? Object.entries(e.ut || {}).filter(([, n]) => n * rate >= 1).map(([g]) => g) : [];
-  const filter = ['in', ['get', 'GEOID'], ['literal', ids]];
-  map.setFilter('uncov-fill', filter);
-  map.setFilter('uncov-line', filter);
-  const feats = on ? Object.entries(e.u).filter(([, u]) => u[0] * rate >= 10).map(([city, u]) => ({
+let uncovToken = 0;
+async function applyUncovered() {
+  const e = gapEntry(), rate = S.rate / 100, on = Boolean(S.show.pre && e);
+  const token = ++uncovToken;
+  const data = on ? await getJSON(`data/uncovered/${scenarioKey()}.geojson`).catch(() => EMPTY) : EMPTY;
+  if (token !== uncovToken) return;
+  const areas = data.features.filter((f) => f.properties.km === S.dist && f.properties.people * rate >= 5);
+  map.getSource('uncov-areas').setData({ type: 'FeatureCollection', features: areas });
+  const labels = on ? Object.entries(e.u).filter(([, u]) => u[0] * rate >= 10).map(([city, u]) => ({
     type: 'Feature', geometry: { type: 'Point', coordinates: u[2] },
     properties: { label: `No pre-identified shelter in range\n${city}: est. need ${approx(u[0] * rate)} residents` },
   })) : [];
-  map.getSource('uncov-pts').setData({ type: 'FeatureCollection', features: feats });
+  map.getSource('uncov-pts').setData({ type: 'FeatureCollection', features: labels });
 }
 
 function applyPoints() {
