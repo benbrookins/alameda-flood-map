@@ -8,7 +8,8 @@ residents are ranked by how many of them they could reach.
 
 Run after 04_points.py, 06_key_shelters.py and 10_capacity.py.
 Output: docs/data/capacity_gaps.json
-  {scenario: {km: {"a": {pre id: assigned}, "u": {city: [uncovered, [[site id, reach], ...]]}, "c": {pre id: [[site id, reach], ...]}}}}
+  {scenario: {km: {"a": {pre id: assigned}, "u": {city: [uncovered, [[site id, reach], ...], [lon, lat]]},
+                    "ut": {tract GEOID: uncovered}, "c": {pre id: [[site id, reach], ...]}}}}
 """
 import json
 from pathlib import Path
@@ -48,6 +49,11 @@ def main():
     bx, by, tract = z["x"], z["y"], z["tract"]
     tr = gpd.read_file(DOCS / "tracts.geojson")
     city = np.array([dict(zip(tr.GEOID.str[5:], tr.place)).get(t, "Unincorporated") for t in tract])
+    tract_codes, tract_idx = np.unique(tract, return_inverse=True)
+
+    def to_lonlat(x, y):
+        p = gpd.GeoSeries(gpd.points_from_xy([x], [y]), crs=3310).to_crs(4326).iloc[0]
+        return p.x, p.y
 
     feats = json.load(open(DOCS / "points.json"))["features"]
     cap = json.load(open(DOCS / "capacity.json"))["sites"]
@@ -91,7 +97,7 @@ def main():
         for km in RADII_KM:
             R = km * 1000
             near_pot = (D_pot <= R).astype(np.float32)
-            entry = {"a": {}, "u": {}, "c": {}}
+            entry = {"a": {}, "u": {}, "ut": {}, "c": {}}
             if flooded.any() and dry_pre.any():
                 Dd = np.where(dry_pre[None, :], D_pre, np.inf)
                 nearest, dist = Dd.argmin(axis=1), Dd.min(axis=1)
@@ -110,7 +116,13 @@ def main():
                 sel = unc & (city == cty)
                 total = fl[sel].sum()
                 if total >= MIN_UNCOVERED:
-                    entry["u"][cty] = [int(round(total)), candidates(near_pot, dry_pot, np.where(sel, fl, 0.0).astype(np.float32))]
+                    w = fl[sel]
+                    lon, lat = to_lonlat((bx[sel] * w).sum() / w.sum(), (by[sel] * w).sum() / w.sum())
+                    entry["u"][cty] = [int(round(total)), candidates(near_pot, dry_pot, np.where(sel, fl, 0.0).astype(np.float32)),
+                                       [round(lon, 5), round(lat, 5)]]
+            if unc.any():
+                per = np.bincount(tract_idx[unc], weights=fl[unc], minlength=len(tract_codes))
+                entry["ut"] = {f"06001{tract_codes[t]}": int(round(per[t])) for t in np.flatnonzero(per >= 1)}
             out[key][km] = entry
     path = DOCS / "capacity_gaps.json"
     path.write_text(json.dumps(out, separators=(",", ":"), ensure_ascii=False))

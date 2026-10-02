@@ -324,6 +324,10 @@ Status key: ☐ to do, ⚠ verify availability or licensing first.
    contact (excluding unnamed sites and sites within 250 m of a
    pre-identified shelter; ranked by residents reached, then larger types
    and buildings).
+   Uncovered areas are drawn on the map as dashed purple census tracts, with
+   one label per city ("No pre-identified shelter in range, est. need ~X
+   residents", shown when the estimate is 10 or more). Tracts can be much
+   bigger than the flooded part, so the outline shows the general area.
    **Full run order:** `09` → `04` → `07` → `04` → `06` → `08` → `10` → `11`.
 6. **Polish and share.** Disclaimers, sources, mobile layout, bundling,
    GitHub Pages if needed. *(Sonnet)*

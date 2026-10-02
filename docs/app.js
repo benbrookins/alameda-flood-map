@@ -153,7 +153,15 @@ function addFloodLayers() {
   fema('fema100', [1, 0], 1.2, 0.12);
   map.addLayer({ id: 'low-fill', type: 'fill', source: 'low', paint: { 'fill-color': t.low, 'fill-opacity': 0.65 } }, before);
   map.addLayer({ id: 'bay-fill', type: 'fill', source: 'bay', paint: { 'fill-color': t.bay, 'fill-opacity': 0.72 } }, before);
+  map.addLayer({ id: 'uncov-fill', type: 'fill', source: 'tracts', filter: ['in', ['get', 'GEOID'], ['literal', []]], paint: { 'fill-color': '#7b1fa2', 'fill-opacity': 0.12 } }, before);
+  map.addLayer({ id: 'uncov-line', type: 'line', source: 'tracts', filter: ['in', ['get', 'GEOID'], ['literal', []]], paint: { 'line-color': '#7b1fa2', 'line-width': 2.2, 'line-dasharray': [2, 1.5] } }, before);
   addSiteLayers(before);
+  map.addSource('uncov-pts', { type: 'geojson', data: EMPTY });
+  map.addLayer({
+    id: 'uncov-label', type: 'symbol', source: 'uncov-pts',
+    layout: { 'text-field': ['get', 'label'], 'text-font': ['Noto Sans Bold'], 'text-size': 12, 'text-max-width': 14, 'text-allow-overlap': false },
+    paint: { 'text-color': '#4a148c', 'text-halo-color': '#ffffff', 'text-halo-width': 2 },
+  });
   map.addLayer({ id: 'tract-sel', type: 'line', source: 'tracts', filter: ['==', ['get', 'GEOID'], ''], paint: { 'line-color': t.sel, 'line-width': 3 } }, before);
 }
 
@@ -300,6 +308,19 @@ function overCapacity() {
     if (cap && need > cap) out.push({ id: +id, need, cap, short: need - cap, cands: e.c[id] || [] });
   }
   return out.sort((a, b) => b.short - a.short);
+}
+
+function applyUncovered() {
+  const e = gapEntry(), rate = S.rate / 100, on = S.show.pre && e;
+  const ids = on ? Object.entries(e.ut || {}).filter(([, n]) => n * rate >= 1).map(([g]) => g) : [];
+  const filter = ['in', ['get', 'GEOID'], ['literal', ids]];
+  map.setFilter('uncov-fill', filter);
+  map.setFilter('uncov-line', filter);
+  const feats = on ? Object.entries(e.u).filter(([, u]) => u[0] * rate >= 10).map(([city, u]) => ({
+    type: 'Feature', geometry: { type: 'Point', coordinates: u[2] },
+    properties: { label: `No pre-identified shelter in range\n${city}: est. need ${approx(u[0] * rate)} residents` },
+  })) : [];
+  map.getSource('uncov-pts').setData({ type: 'FeatureCollection', features: feats });
 }
 
 function applyPoints() {
@@ -595,7 +616,7 @@ function renderLegend() {
   ];
   const sites = [];
   if (S.show.fac) sites.push(el('div', { class: 'row' }, sw('dia', 'background:#4a3aa7'), el('span', { text: 'Critical facility' })), el('div', { class: 'row' }, sw('dia', 'background:#d03b3b'), el('span', { text: 'Critical facility, flooded' })));
-  if (S.show.pre) sites.push(el('div', { class: 'row' }, sw('house', 'background:#006b2e'), el('span', { text: 'Pre-identified shelter' })), el('div', { class: 'row' }, sw('house', 'background:#d03b3b'), el('span', { text: 'Pre-identified shelter, flooded' })), el('div', { class: 'row' }, sw('ring', ''), el('span', { text: 'Pre-identified shelter, over capacity' })));
+  if (S.show.pre) sites.push(el('div', { class: 'row' }, sw('house', 'background:#006b2e'), el('span', { text: 'Pre-identified shelter' })), el('div', { class: 'row' }, sw('house', 'background:#d03b3b'), el('span', { text: 'Pre-identified shelter, flooded' })), el('div', { class: 'row' }, sw('ring', ''), el('span', { text: 'Pre-identified shelter, over capacity' })), el('div', { class: 'row' }, sw('uncov', ''), el('span', { text: 'No pre-identified shelter in range' })));
   if (S.show.shelter) sites.push(el('div', { class: 'row' }, sw('sq', 'background:#008300'), el('span', { text: 'Key shelter (dry)' })), el('div', { class: 'row' }, sw('sq', 'background:#008300;opacity:0.3'), el('span', { text: 'Other potential shelter' })));
   if (S.show.worship) sites.push(el('div', { class: 'row' }, sw('sq', 'background:#fff;border-color:#008300'), el('span', { text: 'Place of worship (dry; faded if not key)' })));
   if (S.show.roads) sites.push(el('div', { class: 'row' }, sw('road', ''), el('span', { text: 'Flooded major road' })));
@@ -639,7 +660,7 @@ function update({ flood = true, pts = true } = {}) {
   syncUrl();
   if (!ready) return;
   const r = compute();
-  if (pts) applyPoints();
+  if (pts) { applyPoints(); applyUncovered(); }
   renderSummary(r);
   renderResponse(r);
   renderTop(r);
