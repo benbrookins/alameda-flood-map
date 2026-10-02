@@ -326,9 +326,10 @@ Status key: ☐ to do, ⚠ verify availability or licensing first.
    and buildings).
    Uncovered areas are drawn in dashed purple: only the census blocks whose
    flooded residents have no dry pre-identified shelter in range (straight
-   line), from `docs/data/uncovered/<scenario>.geojson`, shown when the
-   estimated need is 5 or more; one label per city when it is 10 or more.
-   Residents who reach a shelter just outside their tract are not shown.
+   line), from `docs/data/uncovered/<scenario>.geojson`. Every shaded piece
+   has its own label ("est. need ~N residents" or "fewer than 5"); pieces
+   under 1 estimated person are not shaded. Below zoom 11 the pieces are
+   hidden and each city gets one summary label instead.
    **Road-network access (cut-off areas, travel distance) is parked** for a
    planning session: draft in gitignored `data/work/parked_road_network/`,
    full drivable road download in `data/raw/osm/all_roads.json`.

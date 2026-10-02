@@ -69,6 +69,7 @@ const SHELTER_KINDS = ['school', 'community', 'library'];
 const SHOW_KEYS = { p: 'pre', f: 'fac', s: 'shelter', w: 'worship', r: 'roads' };
 const POINT_LAYERS = ['pts-fac', 'pts-fac-bad', 'pts-shelter', 'pts-shelter-key', 'pts-worship', 'pts-worship-key', 'pts-pre', 'pts-pre-bad'];
 
+const ZOOM_DETAIL = 11;  // below this, uncovered areas show as one label per city instead of shaded pieces
 const COUNTY_BOUNDS = [[-122.36, 37.44], [-121.46, 37.92]];
 const REGIONS = [
   { label: 'Full county', bounds: COUNTY_BOUNDS },
@@ -154,14 +155,20 @@ function addFloodLayers() {
   map.addLayer({ id: 'low-fill', type: 'fill', source: 'low', paint: { 'fill-color': t.low, 'fill-opacity': 0.65 } }, before);
   map.addLayer({ id: 'bay-fill', type: 'fill', source: 'bay', paint: { 'fill-color': t.bay, 'fill-opacity': 0.72 } }, before);
   map.addSource('uncov-areas', { type: 'geojson', data: EMPTY });
-  map.addLayer({ id: 'uncov-fill', type: 'fill', source: 'uncov-areas', paint: { 'fill-color': '#7b1fa2', 'fill-opacity': 0.35 } }, before);
-  map.addLayer({ id: 'uncov-line', type: 'line', source: 'uncov-areas', paint: { 'line-color': '#4a148c', 'line-width': 2.5, 'line-dasharray': [2, 1.2] } }, before);
+  map.addLayer({ id: 'uncov-fill', type: 'fill', source: 'uncov-areas', minzoom: ZOOM_DETAIL, paint: { 'fill-color': '#7b1fa2', 'fill-opacity': 0.35 } }, before);
+  map.addLayer({ id: 'uncov-line', type: 'line', source: 'uncov-areas', minzoom: ZOOM_DETAIL, paint: { 'line-color': '#4a148c', 'line-width': 2.5, 'line-dasharray': [2, 1.2] } }, before);
   addSiteLayers(before);
   map.addSource('uncov-pts', { type: 'geojson', data: EMPTY });
+  const labelPaint = { 'text-color': '#4a148c', 'text-halo-color': '#ffffff', 'text-halo-width': 2 };
   map.addLayer({
-    id: 'uncov-label', type: 'symbol', source: 'uncov-pts',
-    layout: { 'text-field': ['get', 'label'], 'text-font': ['Noto Sans Bold'], 'text-size': 12, 'text-max-width': 14, 'text-allow-overlap': false },
-    paint: { 'text-color': '#4a148c', 'text-halo-color': '#ffffff', 'text-halo-width': 2 },
+    id: 'uncov-label', type: 'symbol', source: 'uncov-pts', minzoom: ZOOM_DETAIL, filter: ['==', ['get', 'kind'], 'piece'],
+    layout: { 'text-field': ['get', 'label'], 'text-font': ['Noto Sans Bold'], 'text-size': 11.5, 'text-max-width': 14, 'text-allow-overlap': true, 'text-ignore-placement': true },
+    paint: labelPaint,
+  });
+  map.addLayer({
+    id: 'uncov-city', type: 'symbol', source: 'uncov-pts', maxzoom: ZOOM_DETAIL, filter: ['==', ['get', 'kind'], 'city'],
+    layout: { 'text-field': ['get', 'label'], 'text-font': ['Noto Sans Bold'], 'text-size': 11.5, 'text-max-width': 16 },
+    paint: labelPaint,
   });
   map.addLayer({ id: 'tract-sel', type: 'line', source: 'tracts', filter: ['==', ['get', 'GEOID'], ''], paint: { 'line-color': t.sel, 'line-width': 3 } }, before);
 }
@@ -312,18 +319,22 @@ function overCapacity() {
 }
 
 let uncovToken = 0;
+const needText = (n) => (n < 5 ? 'fewer than 5' : n < 10 ? `~${Math.round(n)}` : approx(n));
 async function applyUncovered() {
   const e = gapEntry(), rate = S.rate / 100, on = Boolean(S.show.pre && e);
   const token = ++uncovToken;
   const data = on ? await getJSON(`data/uncovered/${scenarioKey()}.geojson`).catch(() => EMPTY) : EMPTY;
   if (token !== uncovToken) return;
-  const areas = data.features.filter((f) => f.properties.km === S.dist && f.properties.people * rate >= 5);
-  map.getSource('uncov-areas').setData({ type: 'FeatureCollection', features: areas });
-  const labels = on ? Object.entries(e.u).filter(([, u]) => u[0] * rate >= 10).map(([city, u]) => ({
+  const shown = data.features.filter((f) => f.properties.km === S.dist && f.properties.people * rate >= 0.5);
+  map.getSource('uncov-areas').setData({ type: 'FeatureCollection', features: shown.filter((f) => f.properties.kind === 'area') });
+  const pieces = shown.filter((f) => f.properties.kind === 'label').map((f) => ({
+    ...f, properties: { kind: 'piece', label: `No pre-identified shelter in range\nest. need ${needText(f.properties.people * rate)} residents` },
+  }));
+  const cities = on ? Object.entries(e.u).filter(([, u]) => u[0] * rate >= 0.5).map(([city, u]) => ({
     type: 'Feature', geometry: { type: 'Point', coordinates: u[2] },
-    properties: { label: `No pre-identified shelter in range\n${city}: est. need ${approx(u[0] * rate)} residents` },
+    properties: { kind: 'city', label: `${city}: est. need ${needText(u[0] * rate)} residents with no pre-identified shelter in range (zoom in to see where)` },
   })) : [];
-  map.getSource('uncov-pts').setData({ type: 'FeatureCollection', features: labels });
+  map.getSource('uncov-pts').setData({ type: 'FeatureCollection', features: [...pieces, ...cities] });
 }
 
 function applyPoints() {

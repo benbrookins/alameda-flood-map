@@ -7,8 +7,9 @@ the chosen share), and for each city with uncovered residents, the dry potential
 residents are ranked by how many of them they could reach.
 
 Run after 04_points.py, 06_key_shelters.py and 10_capacity.py.
-Outputs: docs/data/uncovered/<scenario>.geojson  outlines of the blocks whose flooded residents have no pre-identified
-         shelter in range (per km and city, with resident counts), for the map
+Outputs: docs/data/uncovered/<scenario>.geojson  each separate area of blocks whose flooded residents have no
+         pre-identified shelter in range (kind "area"), plus a label point per area (kind "label"), per km and city,
+         with resident counts
         docs/data/capacity_gaps.json
   {scenario: {km: {"a": {pre id: assigned}, "u": {city: [uncovered, [[site id, reach], ...], [lon, lat]]},
                     "c": {pre id: [[site id, reach], ...]}}}}
@@ -71,6 +72,7 @@ def main():
     city = np.array([dict(zip(tr.GEOID.str[5:], tr.place)).get(t, "Unincorporated") for t in tract])
     tract_codes, tract_idx = np.unique(tract, return_inverse=True)
     bgeom = block_shapes(bx, by)
+    bpoint = shapely.points(bx, by)
     (DOCS / "uncovered").mkdir(parents=True, exist_ok=True)
 
     def to_lonlat(x, y):
@@ -144,10 +146,19 @@ def main():
                     entry["u"][cty] = [int(round(total)), candidates(near_pot, dry_pot, np.where(sel, fl, 0.0).astype(np.float32)),
                                        [round(lon, 5), round(lat, 5)]]
             for cty in np.unique(city[unc]):
-                sel = unc & (city == cty)
-                if fl[sel].sum() >= 1:
-                    shape = shapely.simplify(shapely.union_all(shapely.buffer(bgeom[sel], 25)), 20)
-                    areas.append({"km": km, "city": str(cty), "people": int(round(fl[sel].sum())), "geometry": shape})
+                sel = np.flatnonzero(unc & (city == cty))
+                if fl[sel].sum() < 0.5:
+                    continue
+                merged = shapely.union_all(shapely.buffer(bgeom[sel], 25))
+                pieces = list(getattr(merged, "geoms", [merged]))
+                which = shapely.STRtree(pieces).query(bpoint[sel], predicate="within")
+                people = np.bincount(which[1], weights=fl[sel][which[0]], minlength=len(pieces))
+                for piece, n in zip(pieces, people):
+                    if n >= 0.5:
+                        lp = piece.representative_point()
+                        areas.append({"kind": "area", "km": km, "city": str(cty), "people": int(round(n)),
+                                      "geometry": shapely.simplify(piece, 20)})
+                        areas.append({"kind": "label", "km": km, "city": str(cty), "people": int(round(n)), "geometry": lp})
             out[key][km] = entry
         path = DOCS / "uncovered" / f"{key}.geojson"
         path.unlink(missing_ok=True)
