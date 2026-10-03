@@ -1,0 +1,19 @@
+.back { margin: 0 0 6px; font-size: 13px; }
+.back a { color: var(--accent); }
+#now, #chart, #thresholds, #spills, #art { border-top: 1px solid var(--border); padding-top: 14px; margin-top: 4px; }
+.area { border-top: 1px solid var(--border); padding: 8px 0; font-size: 13.5px; }
+.area .name { font-weight: 700; }
+.area .row2 { color: var(--text-2); font-size: 12.5px; margin-top: 2px; }
+.gap-bad { color: #b42318; font-weight: 600; }
+.gap-ok { color: #0a7a2e; font-weight: 600; }
+.chart svg { width: 100%; height: auto; display: block; }
+.chart .axis text { fill: var(--text-2); font-size: 11px; }
+.chart .axis line, .chart .grid line { stroke: var(--border); }
+.chart .lbl { font-size: 11.5px; fill: var(--text); }
+.chart .now { stroke: var(--text-2); stroke-dasharray: 3 3; }
+.chart .hit { fill: transparent; cursor: default; }
+.chart-legend { display: flex; gap: 14px; font-size: 12.5px; color: var(--text-2); margin: 4px 0 6px; }
+.chart-legend .k { display: inline-block; width: 14px; height: 3px; vertical-align: middle; margin-right: 5px; border-radius: 2px; }
+.tip { position: fixed; pointer-events: none; background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 6px 9px; font-size: 12.5px; box-shadow: 0 2px 8px rgba(0,0,0,.15); z-index: 10; display: none; }
+.legend .sw.tri { width: 0; height: 0; border-left: 7px solid transparent; border-right: 7px solid transparent; border-bottom: 12px solid #b8860b; border-top: 0; border-radius: 0; margin: 0 2px; background: none; }
+.legend .sw.cut { width: 16px; height: 11px; border: 2px dashed #4a148c; background: rgba(123,31,162,0.18); border-radius: 1px; }

@@ -18,10 +18,9 @@ import json
 
 import geopandas as gpd
 import numpy as np
-import pandas as pd
 import shapely
 
-from common import DOCS, RAW, ROOT, WORK, scenario_mask
+from common import DOCS, ROOT, WORK, block_shapes, scenario_mask
 RADII_KM = (1, 2, 5)
 POTENTIAL = {"school", "community", "library", "worship"}
 TOP = 5
@@ -31,22 +30,6 @@ TYPE_RANK = {b: i for i, b in enumerate(["college", "high_school", "middle_schoo
                                          "elementary_school", "small_school", "library", "worship"])}
 
 
-def block_shapes(bx, by):
-    """Block polygons (EPSG:3310) in the same order as block_flood.npz (the block file's order, as in 03_census.py)."""
-    raw = RAW / "census"
-    rows = json.load(open(raw / "block_pop_2020.json"))
-    pop = pd.DataFrame(rows[1:], columns=rows[0])
-    pop["GEOID20"] = pop.state + pop.county + pop.tract + pop.block
-    pop[["P1_001N", "H1_001N"]] = pop[["P1_001N", "H1_001N"]].astype(int)
-    b = gpd.read_file(f"zip://{raw / 'blocks_alameda.zip'}")[["GEOID20", "geometry"]].to_crs(3310)
-    b = b.merge(pop[["GEOID20", "P1_001N", "H1_001N"]], on="GEOID20", how="left", validate="1:1")
-    b = b[(b.P1_001N > 0) | (b.H1_001N > 0)].reset_index(drop=True)
-    pts = b.geometry.representative_point()
-    off = np.hypot(pts.x.values - bx, pts.y.values - by)
-    assert len(b) == len(bx) and off.max() < 1.0, f"block order mismatch (max offset {off.max():.0f} m)"
-    return b.geometry.values
-
-
 def main():
     z = np.load(WORK / "block_flood.npz")
     keys, F = list(z["keys"]), z["pop"].astype(np.float64)
@@ -54,7 +37,7 @@ def main():
     tr = gpd.read_file(DOCS / "tracts.geojson")
     city = np.array([dict(zip(tr.GEOID.str[5:], tr.place)).get(t, "Unincorporated") for t in tract])
     tract_codes, tract_idx = np.unique(tract, return_inverse=True)
-    bgeom = block_shapes(bx, by)
+    bgeom = block_shapes(bx, by).geometry.values
     bpoint = shapely.points(bx, by)
     (DOCS / "uncovered").mkdir(parents=True, exist_ok=True)
 

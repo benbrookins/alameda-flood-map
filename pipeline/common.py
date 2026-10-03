@@ -1,8 +1,11 @@
 """Paths, flood-layer names, and helpers shared by the pipeline scripts."""
+import json
 import time
 from pathlib import Path
 
 import geopandas as gpd
+import numpy as np
+import pandas as pd
 import requests
 import shapely
 
@@ -62,3 +65,54 @@ def overpass(query, attempts=8):
             print(f"  {url.split('/')[2]} failed ({str(e)[:60]}); retrying", flush=True)
             time.sleep(5 * (attempt + 1))
     raise RuntimeError("Overpass query failed")
+
+
+def block_shapes(bx, by):
+    """Populated 2020 blocks (EPSG:3310) in the same order as data/work/block_flood.npz, with pop and hu columns.
+
+    Checks each block's interior point against the stored block location, so a mismatch fails loudly."""
+    raw = RAW / "census"
+    rows = json.load(open(raw / "block_pop_2020.json"))
+    pop = pd.DataFrame(rows[1:], columns=rows[0])
+    pop["GEOID20"] = pop.state + pop.county + pop.tract + pop.block
+    pop["pop"], pop["hu"] = pop.P1_001N.astype(int), pop.H1_001N.astype(int)
+    b = gpd.read_file(f"zip://{raw / 'blocks_alameda.zip'}")[["GEOID20", "geometry"]].to_crs(CRS)
+    b = b.merge(pop[["GEOID20", "pop", "hu"]], on="GEOID20", how="left", validate="1:1")
+    b = b[(b["pop"] > 0) | (b["hu"] > 0)].reset_index(drop=True)
+    pts = b.geometry.representative_point()
+    off = np.hypot(pts.x.values - bx, pts.y.values - by)
+    assert len(b) == len(bx) and off.max() < 1.0, f"block order mismatch (max offset {off.max():.0f} m)"
+    return b
+
+
+def road_network():
+    """OSM drivable roads (data/raw/osm/all_roads.json) as a graph.
+
+    Returns a dict: node lon/lat and x/y (EPSG:3310); edge endpoints a/b, at_grade (False for bridges and tunnels),
+    and the road name of each edge."""
+    els = json.load(open(RAW / "osm" / "all_roads.json"))["elements"]
+    node_id, lon, lat, ea, eb, grade, names = {}, [], [], [], [], [], []
+    for e in els:
+        g = e.get("geometry") or []
+        if len(g) < 2:
+            continue
+        t = e.get("tags", {})
+        at_grade = t.get("bridge") in (None, "no") and t.get("tunnel") in (None, "no")
+        name = t.get("name") or t.get("ref") or ""
+        prev = None
+        for p in g:
+            k = (round(p["lon"], 7), round(p["lat"], 7))
+            i = node_id.get(k)
+            if i is None:
+                i = node_id[k] = len(lon)
+                lon.append(k[0])
+                lat.append(k[1])
+            if prev is not None and prev != i:
+                ea.append(prev)
+                eb.append(i)
+                grade.append(at_grade)
+                names.append(name)
+            prev = i
+    pts = gpd.GeoSeries(gpd.points_from_xy(lon, lat), crs=4326).to_crs(CRS)
+    return {"lon": np.array(lon), "lat": np.array(lat), "x": pts.x.values, "y": pts.y.values,
+            "a": np.array(ea), "b": np.array(eb), "at_grade": np.array(grade), "name": np.array(names, dtype=object)}

@@ -68,10 +68,13 @@ decisions and data sources.
   socioeconomic shading, critical facilities (state licensing lists),
   pre-identified and potential shelters with capacity, key shelters,
   shelter capacity gaps and uncovered areas, flooded roads, region buttons.
-- Distances are straight-line. Road-network access (cut-off areas, travel
-  distance) is parked for a planning session: draft in gitignored
-  `data/work/parked_road_network/`.
-- Deferred: ART flood maps (parked), tsunami, landslides.
+- Main map distances are straight-line. Road cut-offs are modeled only on the
+  airport-area page (`docs/airport/`, `pipeline/13_airport.py`): 0.1 ft steps
+  +2.0 to +3.0 ft, roads impassable over 6 in of water, "as mapped" vs "if
+  embankment holds" (the low Harbor Bay embankment on the San Leandro Bay
+  channel), and ART as a cross-check. Shared helpers `road_network()` and
+  `block_shapes()` are in `pipeline/common.py`.
+- Deferred: ART on the main map, tsunami, landslides.
 - Shared pipeline code is in `pipeline/common.py`. Run the page locally with
   `python3 -m http.server 8765 --directory docs`. The raw data and `.env`
   (Census API key) are gitignored.

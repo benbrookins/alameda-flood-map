@@ -43,6 +43,7 @@ API step needs a free key in `.env` as `CENSUS_API_KEY`. Run each step with `uv 
 | 9 | `08_footprints.py` | Building-size class for each shelter site |
 | 10 | `10_capacity.py` | Shelter capacity (needs gitignored inputs) |
 | 11 | `11_capacity_gaps.py` | Shelter capacity gaps and uncovered areas |
+| 12 | `13_airport.py` | Airport-area deep dive for `docs/airport/`: 0.1 ft steps from +2.0 to +3.0 ft on NOAA's 3 m elevation model, spill points, an "if embankment holds" variant, ART comparison, and road cut-offs (stages cached in `data/work/airport/`; pass a stage name such as `roads` to rerun from there) |
 
 Shared paths and helpers are in `pipeline/common.py`, including the list of Bay water levels (`BAY_LEVELS`). To add a level: add it there, append its two layers to `LAYERS` (new bitmask bits), add it to `BAY_LEVELS`, `BAY_HINTS`, `BAY_BIT`, and `LOW_BIT` in `docs/app.js` and to the slider in `docs/index.html`, then rerun from step 2. `12_outreach_list.py` writes a private outreach spreadsheet to `data/work/`. Sources and methods are described on the page under
 "About these numbers".
