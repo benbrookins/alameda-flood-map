@@ -1,12 +1,13 @@
 """Shelter capacity gaps: where pre-identified shelters fall short, and which potential sites could help.
 
-For every scenario and distance (1, 2, 5 km), each flooded block's residents are assigned to the nearest dry
-pre-identified shelter within that distance (straight line). Residents with none in range are "uncovered" and grouped
+For every scenario and distance (1 km walk, 2 km walk, 5 km drive), each flooded block's residents are assigned to the
+nearest dry pre-identified shelter within that distance along open paths (walking) or roads (driving), with flooded
+paths closed (distances from 14_access.py). Residents with none in range are "uncovered" and grouped
 by city. For each shelter whose assigned residents exceed its overnight capacity (at 100% shelter use; the page applies
 the chosen share), and for each city with uncovered residents, the dry potential shelter sites within range of those
 residents are ranked by how many of them they could reach.
 
-Run after 04_points.py, 06_key_shelters.py and 10_capacity.py.
+Run after 04_points.py, 14_access.py and 10_capacity.py.
 Outputs: docs/data/uncovered/<scenario>.geojson  each separate area of blocks whose flooded residents have no
          pre-identified shelter in range (kind "area"), plus a label point per area (kind "label"), per km and city,
          with resident counts
@@ -20,7 +21,7 @@ import geopandas as gpd
 import numpy as np
 import shapely
 
-from common import DOCS, ROOT, WORK, block_shapes, scenario_mask
+from common import DOCS, ROOT, WORK, block_shapes, load_access, scenario_mask, shelter_sites
 RADII_KM = (1, 2, 5)
 POTENTIAL = {"school", "community", "library", "worship"}
 TOP = 5
@@ -55,8 +56,15 @@ def main():
     unnamed = {"School", "Community center", "Library", "Place of worship"}
     pot = np.array([i for i, p in enumerate(props) if p["k"] in POTENTIAL and p["n"] not in unnamed])
     pre_cap = np.array([cap[str(props[i]["id"])][0] for i in pre])
-    D_pre = np.hypot(bx[:, None] - px[pre][None, :], by[:, None] - py[pre][None, :])
-    D_pot = np.hypot(px[pot][:, None] - bx[None, :], py[pot][:, None] - by[None, :]).astype(np.float32)
+    row_of = {int(i): r for r, i in enumerate(shelter_sites()[0])}
+    pre_row = np.array([row_of[int(props[i]["id"])] for i in pre])
+    pot_row = np.array([row_of[int(props[i]["id"])] for i in pot])
+
+    def distances(tables, mode):
+        """Dense site x block network distance (inf where out of range or unreachable) from 14_access.py's tables."""
+        D = np.full((len(row_of), len(bx)), np.inf, np.float32)
+        D[tables[f"{mode}_site"], tables[f"{mode}_block"]] = tables[f"{mode}_m"]
+        return D
     masks = np.array([p["m"] for p in props])
     all_pre = np.array([i for i, p in enumerate(props) if p["k"] == "pre"])
     near_pre = np.hypot(px[pot][:, None] - px[all_pre][None, :], py[pot][:, None] - py[all_pre][None, :]).min(axis=1) < SAME_SITE_M
@@ -83,11 +91,14 @@ def main():
         dry_pre = (masks[pre] & m) == 0
         dry_pot = (masks[pot] & m) == 0
         flooded = fl > 0
+        tables = load_access(key)
+        D_mode = {"walk": distances(tables, "walk"), "drive": distances(tables, "drive")}
         out[key] = {}
         areas = []
         for km in RADII_KM:
             R = km * 1000
-            near_pot = (D_pot <= R).astype(np.float32)
+            D = D_mode["walk" if km <= 2 else "drive"]
+            D_pre, near_pot = D[pre_row].T, (D[pot_row] <= R).astype(np.float32)
             entry = {"a": {}, "u": {}, "c": {}}
             if flooded.any() and dry_pre.any():
                 Dd = np.where(dry_pre[None, :], D_pre, np.inf)

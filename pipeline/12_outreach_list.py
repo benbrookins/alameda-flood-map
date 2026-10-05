@@ -1,6 +1,6 @@
 """Spreadsheet of potential shelters to contact first, for Bay +2 ft and +3 ft.
 
-Uses the straight-line shelter assignment from 11_capacity_gaps.py (2 km). Potential sites are listed when they are among
+Uses the shelter assignment from 11_capacity_gaps.py (2 km walk along open paths, flooded paths closed). Potential sites are listed when they are among
 the suggested contacts for (a) a pre-identified shelter that is over or near capacity (75%+ at the default shelter-use
 share) or (b) an area with no pre-identified shelter in range. People counts that depend on the shelter-use share are
 Excel formulas tied to one input cell, so the share can be changed in the workbook.
@@ -86,7 +86,7 @@ def main():
             uncovered_rows.append([label, city, n, None, "; ".join(name(c) for c, _ in cands[:5])])
             area = areas[city]
             area["need"][label] += n * SHARE
-            area["problems"][label].append(f"~{round(n * SHARE)} people with no pre-identified shelter within {KM} km")
+            area["problems"][label].append(f"~{round(n * SHARE)} people with no pre-identified shelter within a {KM} km walk")
             for cid, r in cands:
                 area["cands"].setdefault(cid, len(area["cands"]))
                 area["reach"][cid][label] += r
@@ -102,12 +102,12 @@ def main():
         ["Settings", None],
         ["Flood scenarios", "Bay water level +2 ft and +3 ft above normal high tide (NOAA maps); FEMA zones and low-lying areas off"],
         ["Share of affected residents needing a public shelter", SHARE],
-        ["Distance to a shelter", f"{KM} km, straight line (ignores water and flooded roads)"],
+        ["Distance to a shelter", f"{KM} km walk (about 30 minutes) along open paths; flooded paths are closed"],
         [None, None],
         ["How to read this", None],
         ["Priority contacts", "Grouped by problem area (city), most severe first: pre-identified shelters over or near capacity, and flooded residents with no pre-identified shelter in range. Within each area, potential sites (not yet confirmed as shelters) are ordered by affected residents in reach at +2 and +3 ft combined; sites that themselves flood by +3 ft are listed last."],
         ["Pre-identified status", "How many people each pre-identified shelter would receive (nearest dry shelter within range) versus its overnight capacity."],
-        ["Uncovered areas", f"Flooded residents with no dry pre-identified shelter within {KM} km, by city."],
+        ["Uncovered areas", f"Flooded residents with no dry pre-identified shelter within a {KM} km walk, by city."],
         ["Edit", "Change the yellow cell (B6) to try a different shelter-use share; people counts and statuses update. The list of sites was chosen at 20%."],
         [None, None],
         ["Caveats", None],
@@ -136,7 +136,7 @@ def main():
     for area_rank, (city, area) in enumerate(ranked_areas, 1):
         problems = ["; ".join(area["problems"]["+2 ft"]) or "No issue at +2 ft", "; ".join(area["problems"]["+3 ft"]) or "No issue at +3 ft"]
         if not area["cands"]:
-            rows.append([area_rank, city, *problems, "-", f"No dry potential site within {KM} km of these residents",
+            rows.append([area_rank, city, *problems, "-", f"No dry potential site within a {KM} km walk of these residents",
                          "", "", "", 0, 0, "", "", "", ""])
             continue
         floods_by_3ft = lambda c: bool(feats[c]["properties"]["m"] & 0b0111)  # Bay +1, +2 or +3 ft
@@ -182,7 +182,7 @@ def main():
     uncovered_rows.sort(key=lambda r: (r[0], -r[2]))
     for i, r in enumerate(uncovered_rows, 2):
         r[3] = f"=ROUND(C{i}*{SHARE_CELL},0)"
-    table(ws, ["Scenario", "City", f"Flooded residents with no pre-identified shelter within {KM} km (all)",
+    table(ws, ["Scenario", "City", f"Flooded residents with no pre-identified shelter within a {KM} km walk (all)",
                "Likely to need shelter", "Suggested sites to contact"], uncovered_rows, [10, 14, 20, 12, 90])
 
     rows_written = list(wb["Priority contacts"].iter_rows(min_row=2))

@@ -14,6 +14,7 @@ RAW = ROOT / "data" / "raw"      # downloads (gitignored)
 WORK = ROOT / "data" / "work"    # intermediates (gitignored)
 DOCS = ROOT / "docs" / "data"    # published with the site
 FLOOD = WORK / "flood_full.gpkg"
+ACCESS = WORK / "access"          # walking/driving distance tables from 14_access.py
 CRS = 3310                       # California Albers, meters
 HEADERS = {"User-Agent": "alameda-flood-map/0.1 (research dashboard)"}
 COUNTY_BBOX = "37.44,-122.38,37.93,-121.45"  # south, west, north, east (Overpass order)
@@ -213,3 +214,21 @@ def network_reach(net, closed, sources_xy, targets_xy, limit_m, snap_m=500, sour
         out_t.append(t_ok[ti])
         out_d.append(total[si, ti])
     return np.concatenate(out_s), np.concatenate(out_t), np.concatenate(out_d)
+
+
+SHELTER_KINDS = {"pre", "school", "community", "library", "worship"}
+
+
+def shelter_sites():
+    """Shelter sites from docs/data/points.json (pre-identified and potential): site ids, x, y (EPSG:3310)."""
+    pts = [f for f in json.load(open(DOCS / "points.json"))["features"] if f["properties"]["k"] in SHELTER_KINDS]
+    ids = np.array([int(f["properties"]["id"]) for f in pts])
+    xy = gpd.GeoSeries(gpd.points_from_xy([f["geometry"]["coordinates"][0] for f in pts],
+                                          [f["geometry"]["coordinates"][1] for f in pts]), crs=4326).to_crs(CRS)
+    return ids, xy.x.values, xy.y.values
+
+
+def load_access(key):
+    """Distance tables from 14_access.py for a scenario: {mode}_site (row in shelter_sites()), {mode}_block (row in
+    block_flood.npz) and {mode}_m (meters) for mode 'walk' (to 2 km) and 'drive' (to 5 km)."""
+    return dict(np.load(ACCESS / f"{key}.npz"))
