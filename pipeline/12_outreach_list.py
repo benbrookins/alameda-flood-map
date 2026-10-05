@@ -6,22 +6,36 @@ share) or (b) an area with no pre-identified shelter in range. People counts tha
 Excel formulas tied to one input cell, so the share can be changed in the workbook.
 
 Output (contains capacities, so kept out of the public repo): data/work/outreach_priority_2ft_3ft.xlsx
+
+With --sites faith-community the candidate list is searched afresh for places of worship, community, recreation and
+senior centers, and libraries only (no schools), up to 8 per problem area, ranked by reach, building size, then walking
+distance. Output: data/work/outreach_faith_community_2ft_3ft.xlsx
 """
+import argparse
 import json
 from collections import defaultdict
+
+import geopandas as gpd
+import numpy as np
 
 from openpyxl import Workbook
 from openpyxl.comments import Comment
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
-from common import DOCS, WORK
+from common import DOCS, WORK, load_access, scenario_mask, shelter_sites
 
 SCENARIOS = {"+2 ft": "b2_r0_c0", "+3 ft": "b3_r0_c0"}
 KM = "2"
 SHARE = 0.20
 NEAR = 0.75
 OUT = WORK / "outreach_priority_2ft_3ft.xlsx"
+OUT_FAITH = WORK / "outreach_faith_community_2ft_3ft.xlsx"
+FAITH_BUCKETS = {"worship", "community_center", "senior_center", "library"}
+FAITH_KINDS = {"worship", "community", "library"}
+UNNAMED = {"School", "Community center", "Library", "Place of worship"}
+SAME_SITE_M = 250  # as in 11_capacity_gaps.py
+PER_AREA = 8
 BUCKET = {
     "college": "College or university", "high_school": "High school", "middle_school": "Middle school",
     "elementary_school": "Elementary school", "small_school": "Small or alternative school",
@@ -58,7 +72,78 @@ def table(ws, headers, rows, widths):
     ws.freeze_panes = "A2"
 
 
-def main():
+def faith_candidates(feats, gaps, cap, areas):
+    """Fresh search: for each problem area, rebuild its flooded blocks per scenario (as 11_capacity_gaps.py assigns them),
+    then rank worship / community / library sites within a 2 km walk of those blocks. Fills area["cands"] and area["reach"]."""
+    z = np.load(WORK / "block_flood.npz")
+    keys, F = list(z["keys"]), z["pop"].astype(np.float64)
+    tr = gpd.read_file(DOCS / "tracts.geojson")
+    tract_city = dict(zip(tr.GEOID.str[5:], tr.place))
+    city = np.array([tract_city.get(t, "Unincorporated") for t in z["tract"]])
+    props = {int(i): f["properties"] for i, f in feats.items()}
+    ids, sx, sy = shelter_sites()
+    row_of = {int(i): r for r, i in enumerate(ids)}
+    pre = [i for i in props if props[i]["k"] == "pre" and str(i) in cap["sites"]]
+    pre_row = np.array([row_of[i] for i in pre])
+    pre_cap = np.array([cap["sites"][str(i)][0] for i in pre])
+    pre_xy = np.c_[sx[pre_row], sy[pre_row]]
+    pot = [i for i in props if props[i]["k"] in FAITH_KINDS and props[i].get("b") in FAITH_BUCKETS and props[i]["n"] not in UNNAMED
+           and i in row_of]
+    pot_row = np.array([row_of[i] for i in pot])
+    all_pre_xy = np.c_[sx[[row_of[i] for i in props if props[i]["k"] == "pre" and i in row_of]],
+                       sy[[row_of[i] for i in props if props[i]["k"] == "pre" and i in row_of]]]
+    near_pre = np.hypot(sx[pot_row][:, None] - all_pre_xy[:, 0][None], sy[pot_row][:, None] - all_pre_xy[:, 1][None]).min(axis=1) < SAME_SITE_M
+    size = json.load(open(DOCS / "site_size.json"))
+    size_rank = np.array([{"L": 0, "T": 1, "?": 1, "S": 2}.get(size.get(str(i), [0, "?"])[1], 1) for i in pot])
+    masks = np.array([props[i]["m"] for i in pot])
+    R = float(KM) * 1000
+
+    reach = defaultdict(lambda: defaultdict(lambda: np.zeros(len(pot))))   # city -> label -> reach per site
+    mind = defaultdict(lambda: np.full(len(pot), np.inf))                  # city -> nearest walk to any area block
+    for label, key in SCENARIOS.items():
+        fl = F[keys.index(key)]
+        t = load_access(key)
+        D = np.full((len(ids), len(fl)), np.inf, np.float32)
+        D[t["walk_site"], t["walk_block"]] = t["walk_m"]
+        dry_pre = np.array([(props[i]["m"] & scenario_mask(key)) == 0 for i in pre])
+        Dd = np.where(dry_pre[None, :], D[pre_row].T, np.inf)
+        nearest, dist = Dd.argmin(axis=1), Dd.min(axis=1)
+        flooded = fl > 0
+        covered = flooded & (dist <= R)
+        dry_pot = (masks & scenario_mask(key)) == 0
+        # the assignment must match what the dashboard and the status tab use
+        check = np.bincount(nearest[covered], weights=fl[covered], minlength=len(pre))
+        for j, i in enumerate(pre):
+            assert round(check[j]) == gaps[key][KM]["a"].get(str(i), 0), (key, i)
+        blocks = {}
+        for j, i in enumerate(pre):
+            if check[j] * SHARE / pre_cap[j] >= NEAR:
+                blocks.setdefault(props[i]["c"], np.zeros(len(fl), bool))
+                blocks[props[i]["c"]] |= covered & (nearest == j)
+        for cty, (n, _, _) in gaps[key][KM]["u"].items():
+            blocks.setdefault(cty, np.zeros(len(fl), bool))
+            blocks[cty] |= flooded & ~covered & (city == cty)
+        for cty, sel in blocks.items():
+            if not sel.any():
+                continue
+            near = (D[pot_row][:, sel] <= R)
+            r = near @ fl[sel]
+            r[~dry_pot | near_pre] = 0
+            reach[cty][label] = r
+            d = np.where(dry_pot & ~near_pre, D[pot_row][:, sel].min(axis=1), np.inf)
+            mind[cty] = np.minimum(mind[cty], d)
+    for cty, area in areas.items():
+        tot = sum(reach[cty][l] for l in SCENARIOS) if cty in reach else np.zeros(len(pot))
+        order = sorted((k for k in range(len(pot)) if tot[k] >= 1),
+                       key=lambda k: (-round(tot[k]), size_rank[k], mind[cty][k]))[:PER_AREA]
+        area["cands"] = {pot[k]: n for n, k in enumerate(order)}
+        area["reach"] = defaultdict(lambda: defaultdict(int))
+        for k in order:
+            for l in SCENARIOS:
+                area["reach"][pot[k]][l] = int(round(reach[cty][l][k])) if l in reach[cty] else 0
+
+
+def main(faith=False):
     gaps = json.load(open(DOCS / "capacity_gaps.json"))
     cap = json.load(open(DOCS / "capacity.json"))
     size = json.load(open(DOCS / "site_size.json"))
@@ -90,6 +175,8 @@ def main():
             for cid, r in cands:
                 area["cands"].setdefault(cid, len(area["cands"]))
                 area["reach"][cid][label] += r
+    if faith:
+        faith_candidates({int(i): f for i, f in feats.items()}, gaps, cap, areas)
     ranked_areas = sorted(areas.items(), key=lambda kv: (-kv[1]["need"]["+3 ft"], -kv[1]["need"]["+2 ft"]))
 
     wb = Workbook()
@@ -116,6 +203,14 @@ def main():
         ["Reach", "Flooded residents within the distance of the site who would otherwise go to the over-capacity shelter or have no shelter in range. Sites near each other reach many of the same people, so reach is not additive across sites."],
         ["Status", "Sites have not been contacted. Not an official plan."],
     ]
+    if faith:
+        notes[0][0] = "Faith-based, community center and library outreach: Bay +2 ft and +3 ft (no schools)"
+        notes[9][1] = ("Grouped by problem area (city), most severe first: pre-identified shelters over or near capacity, and flooded residents "
+                       "with no pre-identified shelter in range. Within each area, up to 8 places of worship, community, recreation and senior "
+                       "centers, and libraries (not yet confirmed as shelters) that are dry at the level shown, ordered by affected residents "
+                       "in reach at +2 and +3 ft combined, then building size, then walking distance.")
+        notes.append(["Rough capacity estimates", "Estimated capacities for these site types are rough, based on 7-23 surveyed sites per type and "
+                      "none for libraries, so the building size column matters more than usual."])
     for r in notes:
         readme.append(r)
     for row in readme.iter_rows():
@@ -140,7 +235,7 @@ def main():
                          "", "", "", 0, 0, "", "", "", ""])
             continue
         floods_by_3ft = lambda c: bool(feats[c]["properties"]["m"] & 0b0111)  # Bay +1, +2 or +3 ft
-        order = sorted(area["cands"], key=lambda c: (floods_by_3ft(c), -(area["reach"][c]["+2 ft"] + area["reach"][c]["+3 ft"]), area["cands"][c]))
+        order = sorted(area["cands"], key=lambda c: (False if faith else floods_by_3ft(c), -(area["reach"][c]["+2 ft"] + area["reach"][c]["+3 ft"]), area["cands"][c]))
         for site_rank, cid in enumerate(order, 1):
             p = feats[cid]["properties"]
             lon, lat = feats[cid]["geometry"]["coordinates"]
@@ -186,9 +281,12 @@ def main():
                "Likely to need shelter", "Suggested sites to contact"], uncovered_rows, [10, 14, 20, 12, 90])
 
     rows_written = list(wb["Priority contacts"].iter_rows(min_row=2))
-    wb.save(OUT)
-    print(f"wrote {OUT} | {len(ranked_areas)} problem areas, {len(rows_written)} site rows, {len(srt)} pre-identified shelters, {len(uncovered_rows)} uncovered areas")
+    out = OUT_FAITH if faith else OUT
+    wb.save(out)
+    print(f"wrote {out} | {len(ranked_areas)} problem areas, {len(rows_written)} site rows, {len(srt)} pre-identified shelters, {len(uncovered_rows)} uncovered areas")
 
 
 if __name__ == "__main__":
-    main()
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--sites", choices=["faith-community"], help="search only worship, community and library sites (no schools)")
+    main(faith=ap.parse_args().sites == "faith-community")
