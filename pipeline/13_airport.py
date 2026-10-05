@@ -26,7 +26,7 @@ from scipy.sparse import coo_matrix
 from scipy.sparse.csgraph import connected_components
 from scipy.spatial import cKDTree
 
-from common import CRS, DOCS, FLOOD, WORK, block_shapes, road_network
+from common import CRS, DOCS, FLOOD, WORK, block_shapes, edge_samples, road_network
 
 OUT = WORK / "airport"
 WEB = DOCS.parent / "airport" / "data"
@@ -245,10 +245,7 @@ def edge_cut_levels(net, rel, transform, reach):
     lon, lat = net["lon"], net["lat"]
     inside = lambda i: (lon[i] >= w) & (lon[i] <= e) & (lat[i] >= s_) & (lat[i] <= n)
     idx = np.flatnonzero(net["at_grade"] & (inside(a) | inside(b)))
-    length = np.hypot(net["x"][a[idx]] - net["x"][b[idx]], net["y"][a[idx]] - net["y"][b[idx]])
-    k = np.maximum(2, np.ceil(length / SAMPLE_M).astype(int) + 1)
-    owner = np.repeat(np.arange(len(idx)), k)
-    t = np.concatenate([np.linspace(0, 1, m) for m in k])
+    owner, t = edge_samples(net, idx, SAMPLE_M)
     slon = lon[a[idx]][owner] * (1 - t) + lon[b[idx]][owner] * t
     slat = lat[a[idx]][owner] * (1 - t) + lat[b[idx]][owner] * t
     cols, rows = ~transform * (slon, slat)

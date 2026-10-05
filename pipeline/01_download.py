@@ -1,7 +1,7 @@
 """Download raw source data into data/raw/. Usage: uv run pipeline/01_download.py [source ...]
 
 Sources: fema, noaa_slr, census_geo, acs, block_pop, tides, schools, osm, osm_facilities, osm_roads, state_facilities (default), plus
-the parked, optional art and art_roads, which must be named explicitly.
+the optional art, art_roads, osm_all_roads and osm_walk_paths (large or slow), which must be named explicitly.
 """
 import json
 import os
@@ -178,6 +178,34 @@ out geom tags;
 """.replace("{bbox}", COUNTY_BBOX)
 
 
+TILE_LATS, TILE_LONS = (37.44, 37.685, 37.93), (-122.38, -122.07, -121.76, -121.45)  # 2 x 3 tiles over COUNTY_BBOX
+
+
+def save_overpass_tiles(way_filter, out_name):
+    """Ways matching way_filter, in six tiles because the full county is too big for one query."""
+    els = {}
+    for i in range(2):
+        for j in range(3):
+            bbox = f"{TILE_LATS[i]},{TILE_LONS[j]},{TILE_LATS[i + 1]},{TILE_LONS[j + 1]}"
+            print(f"  tile {bbox}", flush=True)
+            for e in overpass(f"[out:json][timeout:300][bbox:{bbox}];way{way_filter};out geom tags;"):
+                els[e["id"]] = e
+    print(f"  {len(els)} ways")
+    save(RAW / "osm" / out_name, json.dumps({"elements": list(els.values())}))
+
+
+def osm_all_roads():
+    print("OSM all drivable roads")
+    save_overpass_tiles('["highway"~"^(motorway|trunk|primary|secondary|tertiary|unclassified|residential|living_street)(_link)?$"]',
+                        "all_roads.json")
+
+
+def osm_walk_paths():
+    print("OSM walkable paths and service roads (to add to the drivable roads for walking)")
+    save_overpass_tiles('["highway"~"^(footway|path|pedestrian|steps|cycleway|living_street|track|service)$"]'
+                        '["foot"!="no"]["access"!~"^(private|no)$"]["service"!="driveway"]', "walk_paths.json")
+
+
 def osm_facilities():
     print("OSM hospitals, care homes, dialysis (fallback; official lists come from state_facilities)")
     save_overpass(FACILITY_QUERY, "facilities.json")
@@ -210,9 +238,9 @@ def load_env():
                 os.environ.setdefault(k.strip(), v.strip())
 
 
-SOURCES = {f.__name__: f for f in [art, art_roads, fema, noaa_slr, census_geo, acs, block_pop, tides, schools, osm, osm_facilities, osm_roads, state_facilities]}
+SOURCES = {f.__name__: f for f in [art, art_roads, fema, noaa_slr, census_geo, acs, block_pop, tides, schools, osm, osm_facilities, osm_roads, osm_all_roads, osm_walk_paths, state_facilities]}
 
 if __name__ == "__main__":
-    parked = {"art", "art_roads"}  # optional, slow; name them explicitly to download
+    parked = {"art", "art_roads", "osm_all_roads", "osm_walk_paths"}  # optional, slow; name them explicitly to download
     for name in sys.argv[1:] or [s for s in SOURCES if s not in parked]:
         SOURCES[name]()
