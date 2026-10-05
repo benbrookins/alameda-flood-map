@@ -115,6 +115,8 @@ const featById = new Map();
 const BAY_BIT = { 1: 0, 2: 1, 3: 2, 4: 3, 2.5: 10 };
 const LOW_BIT = { 1: 4, 2: 5, 3: 6, 4: 7, 2.5: 11 };
 const scenarioKey = () => `b${S.bay}_r${S.rain}_c${S.bay > 0 && S.low ? 1 : 0}`;
+// How far shelter reach is measured, by picker value: 1 and 2 km are walks, 5 km is a drive (along open paths or roads).
+const reachLabel = () => `a ${S.dist} km ${S.dist === 5 ? 'drive' : 'walk'}`;
 const distIdx = () => ({ 1: 0, 2: 2, 5: 4 })[S.dist];
 const scenarioShares = () => scen.scenarios[scenarioKey()] || {};
 const gapEntry = () => gaps?.[scenarioKey()]?.[S.dist] || null;
@@ -537,14 +539,14 @@ function renderPreIdentified(box, pre, dryCap, r, m) {
     .map((f) => ({ p: f.properties, coords: f.geometry.coordinates, people: reach[f.properties.id][i] }))
     .sort((a, b) => b.people - a.people).slice(0, 8);
   if (!ranked.length) return;
-  box.append(el('p', { class: 'note', text: `Closest to affected residents (within ${S.dist} km):` }),
+  box.append(el('p', { class: 'note', text: `Closest to affected residents (within ${reachLabel()}):` }),
     el('ol', { class: 'toplist' }, ranked.map((k) => siteButton(k, approx(k.people), 'Affected residents nearby'))));
 }
 
 function renderKeyShelters(box) {
-  box.append(el('h3', { class: 'sub-h', text: `Key shelters: near affected residents (within ${S.dist} km)` }));
+  box.append(el('h3', { class: 'sub-h', text: `Key shelters: near affected residents (within ${reachLabel()})` }));
   if (!S.show.shelter && !S.show.worship) box.append(el('p', { class: 'empty', text: 'Turn on potential shelters above to see key shelters.' }));
-  else if (!keyList.length) box.append(el('p', { class: 'empty', text: `No dry sites have ${KEY_MIN} or more affected residents within ${S.dist} km in this scenario.` }));
+  else if (!keyList.length) box.append(el('p', { class: 'empty', text: `No dry sites have ${KEY_MIN} or more affected residents within ${reachLabel()} in this scenario.` }));
   else {
     const cities = new Set(keyList.map((k) => k.p.c)).size;
     box.append(el('p', { class: 'note', text: `${keyList.length} site${keyList.length === 1 ? '' : 's'} in ${cities} cit${cities === 1 ? 'y' : 'ies'}, up to ${KEY_PER_CITY} per city, ranked by affected residents nearby (residents without a car count twice). Other sites are faded on the map.` }),
@@ -554,7 +556,7 @@ function renderKeyShelters(box) {
     if (est) box.append(el('p', { class: 'note', text: `Estimated overnight capacity of all ${keyList.length} key sites: about ${nf.format(Math.round(est / 100) * 100)}${none ? ` (${none} site${none === 1 ? '' : 's'} of types without an estimate not counted)` : ''}.` }));
     if (keyList.length > LIST_N) box.append(el('p', { class: 'note', text: `Showing the top ${LIST_N}. All ${keyList.length} are highlighted on the map.` }));
   }
-  box.append(el('p', { class: 'note', text: 'Estimated capacity (est.) is the typical overnight capacity of pre-identified shelters of the same type and can be off by a third or more; there is no estimate for elementary schools, libraries, or small schools. Size compares each site\'s main building with others of the same type. Distances are straight-line and ignore water and flooded roads. Sites are not confirmed as shelters.' }));
+  box.append(el('p', { class: 'note', text: 'Estimated capacity (est.) is the typical overnight capacity of pre-identified shelters of the same type and can be off by a third or more; there is no estimate for elementary schools, libraries, or small schools. Size compares each site\'s main building with others of the same type. Distances follow walking paths or roads and avoid flooded streets, but paths in OpenStreetMap can be incomplete. Sites are not confirmed as shelters.' }));
 }
 
 function candidateList(cands, rate) {
@@ -574,11 +576,11 @@ function renderGaps(box, r) {
   box.append(el('h3', { class: 'sub-h', text: 'Shelter capacity gaps' }));
   if (!e || r.people < 0.5) { box.append(el('p', { class: 'empty', text: 'No residents are in flooded areas in this scenario.' })); return; }
   const rate = S.rate / 100;
-  box.append(el('p', { class: 'note', text: `If ${S.rate}% of the ${approx(r.people)} people in flooded areas need a public shelter (${approx(r.people * rate)} people), each going to the nearest dry pre-identified shelter within ${S.dist} km:` }));
+  box.append(el('p', { class: 'note', text: `If ${S.rate}% of the ${approx(r.people)} people in flooded areas need a public shelter (${approx(r.people * rate)} people), each going to the nearest dry pre-identified shelter within ${reachLabel()}:` }));
   const over = overCapacity();
   const uncovered = Object.entries(e.u).map(([city, [n, cands]]) => ({ city, need: n * rate, cands })).filter((u) => u.need >= 5).sort((a, b) => b.need - a.need);
   if (!over.length && !uncovered.length) {
-    box.append(el('p', { class: 'empty', text: `No pre-identified shelter is over capacity, and every affected area has one within ${S.dist} km.` }));
+    box.append(el('p', { class: 'empty', text: `No pre-identified shelter is over capacity, and every affected area has one within ${reachLabel()}.` }));
     return;
   }
   const contacts = (cands) => (cands.length ? [el('div', { class: 'sub2', text: 'Nearby sites to contact:' }), candidateList(cands, rate)] : []);
@@ -594,7 +596,7 @@ function renderGaps(box, r) {
     }
   }
   if (uncovered.length) {
-    box.append(el('p', { class: 'gap-h', text: `No pre-identified shelter within ${S.dist} km (${uncovered.length} cit${uncovered.length === 1 ? 'y' : 'ies'})` }));
+    box.append(el('p', { class: 'gap-h', text: `No pre-identified shelter within ${reachLabel()} (${uncovered.length} cit${uncovered.length === 1 ? 'y' : 'ies'})` }));
     for (const u of uncovered) {
       box.append(el('div', { class: 'gap' },
         el('div', { class: 'strong', text: u.city }),
@@ -738,7 +740,7 @@ function showSitePopup(p, coords) {
     body.push(el('p', { text: `Type: ${BUCKET[p.b]}.${size}` }));
     const cap = capacityOf(p);
     const assigned = p.k === 'pre' && !flooded ? gapEntry()?.a?.[p.id] : null;
-    if (assigned && cap) body.push(el('p', { class: assigned * S.rate / 100 > cap.n ? 'warn' : '', text: `About ${approx(assigned * S.rate / 100).replace('~', '')} people would come here (at ${S.rate}% shelter use, ${S.dist} km).` }));
+    if (assigned && cap) body.push(el('p', { class: assigned * S.rate / 100 > cap.n ? 'warn' : '', text: `About ${approx(assigned * S.rate / 100).replace('~', '')} people would come here (at ${S.rate}% shelter use, ${S.dist} km ${S.dist === 5 ? 'drive' : 'walk'}).` }));
     if (cap?.surveyed) body.push(el('p', { text: `Capacity: ${nf.format(cap.n)} overnight, ${nf.format(cap.evac)} for a short-term evacuation.${cap.role ? ` ${cap.role[0].toUpperCase() + cap.role.slice(1)} site.` : ''}` }));
     else if (cap) body.push(el('p', { text: `Estimated capacity: about ${nf.format(cap.n)} overnight (typical for this type: ${nf.format(cap.low)}–${nf.format(cap.high)}), based on pre-identified shelters of the same type.` }));
     else body.push(el('p', { text: 'No capacity estimate for this type of site yet.' }));
@@ -747,7 +749,7 @@ function showSitePopup(p, coords) {
   const e = !flooded && shelterReach?.[scenarioKey()]?.[p.id];
   if (e) {
     const i = distIdx();
-    body.push(el('p', { text: `${approx(e[i])} affected residents within ${S.dist} km (${approx(e[i + 1])} without a car).` }));
+    body.push(el('p', { text: `${approx(e[i])} affected residents within ${reachLabel()} (${approx(e[i + 1])} without a car).` }));
   }
   openPopup(coords, body);
 }
