@@ -68,12 +68,17 @@ decisions and data sources.
   socioeconomic shading, critical facilities (state licensing lists),
   pre-identified and potential shelters with capacity, key shelters,
   shelter capacity gaps and uncovered areas, flooded roads, region buttons.
-- Main map distances are straight-line. Road cut-offs are modeled only on the
+- Shelter distances on both pages follow open paths, not straight lines:
+  1 km and 2 km are walks (OSM walking network), 5 km is a drive (OSM roads).
+  Any mapped water closes a path on the main map (`pipeline/14_access.py`);
+  homes attach to the nearest open path node within 500 m. Road cut-offs
+  (areas cut off by car, and whether they can still walk out) are modeled only on the
   airport-area page (`docs/airport/`, `pipeline/13_airport.py`): 0.1 ft steps
   +2.0 to +3.0 ft, roads impassable over 6 in of water, "as mapped" vs "if
   embankment holds" (the low Harbor Bay embankment on the San Leandro Bay
-  channel), and ART as a cross-check. Shared helpers `road_network()` and
-  `block_shapes()` are in `pipeline/common.py`.
+  channel), and ART as a cross-check; there walking closes at any water on a
+  path and driving over 6 in. Shared helpers `road_network()`, `walk_network()`,
+  `network_reach()` and `block_shapes()` are in `pipeline/common.py`.
 - Deferred: ART on the main map, tsunami, landslides.
 - Shared pipeline code is in `pipeline/common.py`. Run the page locally with
   `python3 -m http.server 8765 --directory docs`. The raw data and `.env`

@@ -276,7 +276,7 @@ Status key: ☐ to do, ⚠ verify availability or licensing first.
    county afterward. *(Sonnet)*
    **Key shelters** (`06_key_shelters.py`, `shelter_reach.json`): for each
    scenario, flooded residents and flooded residents without a car within
-   1 km and 2 km of each site (block centers, straight-line). Key = dry
+   1 km and 2 km of each site (block centers; walking or driving distance since the access change). Key = dry
    sites with at least 100 nearby affected residents (no-car residents count
    twice), top 3 per city; others are faded. The page has a 1 km / 2 km
    picker and a ranked list. **Rough size tiers** come from site type only
@@ -325,21 +325,45 @@ Status key: ☐ to do, ⚠ verify availability or licensing first.
    pre-identified shelter; ranked by residents reached, then larger types
    and buildings).
    Uncovered areas are drawn in dashed purple: only the census blocks whose
-   flooded residents have no dry pre-identified shelter in range (straight
-   line), from `docs/data/uncovered/<scenario>.geojson`. Every shaded piece
+   flooded residents have no dry pre-identified shelter in range (by walking or
+   driving distance), from `docs/data/uncovered/<scenario>.geojson`. Every shaded piece
    has its own label ("est. need ~N residents" or "fewer than 5"); pieces
    under 1 estimated person are not shaded. Below zoom 11 the pieces are
    hidden and each city gets one summary label instead.
-   **Road-network access (cut-off areas, travel distance) is parked** for a
-   planning session: draft in gitignored `data/work/parked_road_network/`,
-   full drivable road download in `data/raw/osm/all_roads.json`.
-   **Full run order:** `09` → `04` → `07` → `04` → `06` → `08` → `10` → `11`.
+   **Road-network access:** the airport page models road cut-offs; the main
+   map's travel distances were later moved off straight lines (see Walking and
+   driving distance below). The early draft is parked in gitignored
+   `data/work/parked_road_network/`.
+   **Full run order:** `09` → `04` → `07` → `04` → `14_access` → `06` → `08` →
+   `10` → `11` → `12`, then `13_airport.py` (including its `access` stage).
 6. **Polish and share.** Disclaimers, sources, mobile layout, bundling,
    GitHub Pages if needed. *(Sonnet)*
 
 **Getting it in front of people quickly:** phases 1–4 produce a
 usable shoreline-flooding and vulnerability map and should come first.
 Phases 5–6 add the emergency-response detail.
+
+## Walking and driving distance
+
+Shelter "in range" was first a straight line from each flooded census block to
+each shelter site, which ignored water and flooded streets (for example, Alameda
+residents counted as in range of Oakland shelters across the estuary). It is now
+measured along paths: 1 km and 2 km are walks (about 15 and 30 minutes, OSM
+roads plus footpaths and service roads, no motorways) and 5 km is a drive (OSM
+roads). A path is closed where any mapped flood layer covers it (bridges and
+tunnels stay open). Homes start from the nearest open path node within 500 m;
+a flooded home with none is counted as out of range. Distances are cached per
+scenario by `pipeline/14_access.py` and read by `06`, `11` and `12`.
+
+At +2 and +3 ft this raised the residents with no dry pre-identified shelter in
+range (Alameda most of all) and lowered the residents assigned to shelters
+across water.
+
+On the airport page, the `access` stage adds the same distances for each 0.1 ft
+step (walking closes at any water, driving over 6 in) plus whether each area cut
+off by car can still walk out. Bay Farm Island's roads and path approaches all
+close at about +2.16 ft, so it is cut off on foot as well as by car from +2.2 ft
+as mapped; the bridge spans stay open but have no dry approach.
 
 ## 6. Open questions
 
