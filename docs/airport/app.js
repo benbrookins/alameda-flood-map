@@ -27,16 +27,19 @@ const VARIANT_HINT = {
 const COLORS = { need: '#eb6834', cap: '#2a78d6', cut: '#4a148c', road: '#d03b3b', spill: '#b8860b' };
 const KIND = { hospital: 'Hospital', care: 'Care facility', dialysis: 'Dialysis center', fire: 'Fire station', police: 'Police station', pre: 'Pre-identified shelter' };
 const SITE_KINDS = new Set(['pre', 'care', 'dialysis', 'fire', 'hospital']);
+// Distance settings for shelter access: key in the data, label, position in each area's "uncovered" list
+const DISTS = { w1: ['1 km walk (about 15 min)', 0], w2: ['2 km walk (about 30 min)', 1], d5: ['5 km drive', 2] };
 
 const q = new URLSearchParams(location.search);
 const S = {
   i: Math.min(10, Math.max(0, Math.round(((+q.get('l') || 2) - 2) * 10))),
   variant: q.get('v') === 'hold' ? 'hold' : 'mapped',
   cutRate: [20, 50, 100].includes(+q.get('u')) ? +q.get('u') : 50,
+  dist: q.get('d') in DISTS ? q.get('d') : 'w2',
   art: q.get('a') === '1',
   sites: q.get('s') !== '0',
 };
-let D, points, capacity, ready = false;
+let D, points, capacity, siteNames = {}, ready = false;
 
 const nf = new Intl.NumberFormat('en-US');
 const level = () => D.levels[S.i];
@@ -133,6 +136,24 @@ function applyMap() {
 
 const stepAt = (L, variant = S.variant) => D.steps[variant][lkey(L)];
 const needOf = (ar) => ar.flooded * S.cutRate / 100;
+const km = (m) => `${(m / 1000).toFixed(1)} km`;
+
+// Flooded residents with no dry pre-identified shelter in range, by named area, with each area's nearest dry shelter.
+function renderAccess(box, st) {
+  const ac = st.access, [label, k] = [DISTS[S.dist][0], DISTS[S.dist][1]];
+  if (!ac.total) return;
+  const covered = ac.covered[S.dist], none = ac.total - covered;
+  box.append(el('h3', { class: 'sub-h', text: 'Shelter access for flooded homes' }),
+    el('p', { class: 'note', text: `Within a ${label}, along open paths and roads with flooded ones closed: ${nf.format(covered)} of ${nf.format(ac.total)} residents of flooded homes can reach a dry pre-identified shelter. ${none >= 0.5 ? `${approx(none)} cannot.` : 'Everyone can.'}` }));
+  const by = Object.entries(ac.areas).filter(([, a]) => a.uncovered[k] >= 0.5).sort((a, b) => b[1].uncovered[k] - a[1].uncovered[k]);
+  for (const [name, a] of by) {
+    const near = (m, how) => a[m] ? `${siteNames[a[m][0]] || 'a shelter'}, ${km(a[m][1])} ${how}` : null;
+    const nearest = [near('walk', 'on foot'), near('drive', 'by road')].filter(Boolean);
+    box.append(el('div', { class: 'area' },
+      el('div', { class: 'name', text: `${name}: ${approx(a.uncovered[k])} of ${approx(a.total)} flooded-home residents have no dry shelter in range` }),
+      el('div', { class: 'row2', text: nearest.length ? `Nearest dry pre-identified shelter: ${nearest.join('; ')}.` : 'No dry pre-identified shelter within 5 km on foot or 15 km by road.' })));
+  }
+}
 
 function renderNow() {
   const L = level(), st = stepAt(L);
@@ -143,9 +164,10 @@ function renderNow() {
     el('div', { class: 'tile' }, el('div', { class: 'big', text: `${st.roads_cut_km} km` }), el('div', { class: 'lbl', text: 'of road under more than 6 in of water' }))));
   if (!st.areas.length) {
     box.append(el('p', { class: 'empty', text: 'No neighborhood is cut off by road at this level.' }));
+    renderAccess(box, st);
     return;
   }
-  box.append(el('h3', { class: 'sub-h', text: `Cut off by road (${st.areas.length})` }));
+  box.append(el('h3', { class: 'sub-h', text: `Cut off by car (${st.areas.length})` }));
   for (const ar of [...st.areas].sort((a, b) => b.residents - a.residents)) {
     const need = needOf(ar), short = need - ar.pre_cap;
     box.append(el('div', { class: 'area' },
@@ -156,8 +178,12 @@ function renderNow() {
         need >= 0.5 ? el('span', { class: short > 0 ? 'gap-bad' : 'gap-ok', text: short > 0 ? `Short about ${approx(short)}.` : 'Enough room.' }) : null),
       ar.pot_n ? el('div', { class: 'row2', text: `Other dry potential sites inside: ${ar.pot_n}${ar.pot_cap_est ? ` (est. room for ~${nf.format(ar.pot_cap_est)}${ar.pot_no_est ? `, plus ${ar.pot_no_est} without an estimate` : ''})` : ''}.` }) : null,
       ar.care_n || ar.dialysis_n || ar.fire_n ? el('div', { class: 'row2', text: `Inside: ${[ar.care_n && `${ar.care_n} care facilit${ar.care_n > 1 ? 'ies' : 'y'} (${nf.format(ar.care_residents)} licensed residents)`, ar.dialysis_n && `${ar.dialysis_n} dialysis clinic${ar.dialysis_n > 1 ? 's' : ''}`, ar.fire_n && `${ar.fire_n} fire station${ar.fire_n > 1 ? 's' : ''}`].filter(Boolean).join(', ')}.` }) : null,
-      ar.cut_roads.length ? el('div', { class: 'row2', text: `Cut by flooding on: ${ar.cut_roads.join(', ')}.` }) : null));
+      ar.cut_roads.length ? el('div', { class: 'row2', text: `Cut by flooding on: ${ar.cut_roads.join(', ')}.` }) : null,
+      el('div', { class: 'row2', text: ar.foot_cut < 0.5 ? 'Not cut off on foot: residents can still walk out along open paths.'
+        : ar.foot_open < 0.5 ? 'Also cut off on foot: no open path leads out of this area.'
+        : `Partly cut off on foot: ${approx(ar.foot_open)} of ${nf.format(ar.residents)} residents can still walk out; ${approx(ar.foot_cut)} cannot.` })));
   }
+  renderAccess(box, st);
 }
 
 let tip;
@@ -256,7 +282,7 @@ function renderLegend() {
   const sw = (cls, style) => el('span', { class: `sw ${cls}`, style });
   const item = (s, t) => el('div', { class: 'row' }, s, el('span', { text: t }));
   const rows = [el('h3', { text: 'Flooding' }), item(sw('', 'background:#2a78d6'), 'Flooded at this level'), item(sw('road', ''), 'Road under more than 6 in of water'),
-    item(sw('cut', ''), 'Cut off by road'), item(sw('tri', ''), 'Spill point')];
+    item(sw('cut', ''), 'Cut off by car'), item(sw('tri', ''), 'Spill point')];
   if (S.art) rows.push(item(sw('', 'background:#e86834;opacity:.75'), 'ART regional flood map'));
   if (S.sites) rows.push(el('hr'), item(sw('house', 'background:#006b2e'), 'Pre-identified shelter'), item(sw('house', 'background:#d03b3b'), 'Pre-identified shelter, flooded'),
     item(sw('dia', 'background:#4a3aa7'), 'Critical facility'), item(sw('dia', 'background:#d03b3b'), 'Critical facility, flooded'));
@@ -268,6 +294,7 @@ function renderControls() {
   $('#levelVal').textContent = `+${level().toFixed(1)} ft`;
   for (const b of $('#variant').children) b.setAttribute('aria-pressed', String(b.dataset.v === S.variant));
   for (const b of $('#cutRate').children) b.setAttribute('aria-pressed', String(+b.dataset.v === S.cutRate));
+  for (const b of $('#dist').children) b.setAttribute('aria-pressed', String(b.dataset.v === S.dist));
   $('#variantHint').textContent = VARIANT_HINT[S.variant];
   $('#showArt').checked = S.art;
   $('#showSites').checked = S.sites;
@@ -275,13 +302,13 @@ function renderControls() {
 
 function update() {
   renderControls();
-  history.replaceState(null, '', `?${new URLSearchParams({ l: level().toFixed(1), v: S.variant, u: S.cutRate, a: S.art ? 1 : 0, s: S.sites ? 1 : 0 })}`);
+  history.replaceState(null, '', `?${new URLSearchParams({ l: level().toFixed(1), v: S.variant, u: S.cutRate, d: S.dist, a: S.art ? 1 : 0, s: S.sites ? 1 : 0 })}`);
   applyMap();
   renderNow();
   renderChart();
   renderThresholds();
   renderLegend();
-  document.body.dataset.stats = JSON.stringify({ level: level(), variant: S.variant, flooded: stepAt(level()).flooded, areas: stepAt(level()).areas.map((a) => [a.name, a.residents]) });
+  document.body.dataset.stats = JSON.stringify({ level: level(), variant: S.variant, flooded: stepAt(level()).flooded, areas: stepAt(level()).areas.map((a) => [a.name, a.residents, a.foot_open, a.foot_cut]), access: stepAt(level()).access.covered, total: stepAt(level()).access.total, dist: S.dist });
 }
 
 function showSitePopup(p, coords) {
@@ -299,6 +326,7 @@ function wire() {
   const pick = (id, fn) => $(id).addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) { fn(b.dataset.v); update(); } });
   pick('#variant', (v) => { S.variant = v; });
   pick('#cutRate', (v) => { S.cutRate = +v; });
+  pick('#dist', (v) => { S.dist = v; });
   $('#showArt').addEventListener('change', (e) => { S.art = e.target.checked; update(); });
   $('#showSites').addEventListener('change', (e) => { S.sites = e.target.checked; update(); });
   $('#legend').open = matchMedia('(min-width: 821px)').matches;
@@ -313,6 +341,7 @@ map.on('load', async () => {
   let pts;
   [D, pts, capacity] = await Promise.all([getJSON('data/steps.json'), getJSON('../data/points.json'), getJSON('../data/capacity.json').catch(() => null)]);
   D.spills = (await getJSON('data/spills.geojson')).features;
+  siteNames = Object.fromEntries(pts.features.map((f) => [f.properties.id, f.properties.n]));
   const [w, s, e, n] = D.focus;
   points = pts.features.filter((f) => SITE_KINDS.has(f.properties.k)).filter((f) => {
     const [x, y] = f.geometry.coordinates; return x >= w && x <= e && y >= s && y <= n;

@@ -5,7 +5,9 @@ Water reach: for every cell, the lowest Bay level (ft above local MHHW) at which
 (a "bathtub" fill computed by morphological reconstruction). Flooded at level L means reach <= L; water depth is
 L - ground (both in ft above local MHHW).
 
-Stages (cached in data/work/airport/; pass a stage name to rerun from it): grid, reach, barriers, art, roads, publish.
+Stages (cached in data/work/airport/; pass a stage name to rerun from it): grid, reach, barriers, art, roads, access, publish.
+The access stage measures shelter access on foot and by car (walking closes at any water on a path, driving at
+DEPTH_LIMIT_FT) and whether each area cut off by car is still connected on foot.
 """
 import json
 import sys
@@ -26,7 +28,7 @@ from scipy.sparse import coo_matrix
 from scipy.sparse.csgraph import connected_components
 from scipy.spatial import cKDTree
 
-from common import CRS, DOCS, FLOOD, WORK, block_shapes, edge_samples, road_network
+from common import CRS, DOCS, FLOOD, WORK, block_shapes, edge_samples, network_reach, road_network, walk_network
 
 OUT = WORK / "airport"
 WEB = DOCS.parent / "airport" / "data"
@@ -44,6 +46,8 @@ MAX_WALLS = 15
 DEPTH_LIMIT_FT = 0.5   # a road is impassable where water on it is deeper than this
 SAMPLE_M = 10          # spacing of depth samples along each road segment
 SNAP_M = 400           # blocks and sites attach to the nearest road node within this distance
+ACCESS_SNAP_M = 500    # in the access stage, homes attach to the nearest open path node within this distance
+WALK_LIMIT_M, DRIVE_LIMIT_M = 5000, 15000  # longest routes searched for the nearest dry shelter
 MIN_AREA_RESIDENTS = 1
 POTENTIAL = {"school", "community", "library", "worship"}
 SUBAREAS = {  # names for cut-off areas, by where most of their residents are; listed specific-first
@@ -238,8 +242,9 @@ def subarea(lon, lat, weights=None):
     return best
 
 
-def edge_cut_levels(net, rel, transform, reach):
-    """Bay level at which each road segment becomes impassable (inf if never within the focus box)."""
+def edge_cut_levels(net, rel, transform, reach, depth_limit_ft=DEPTH_LIMIT_FT):
+    """Bay level at which each segment becomes impassable (inf if never within the focus box), where water on it is
+    deeper than depth_limit_ft."""
     a, b = net["a"], net["b"]
     w, s_, e, n = FOCUS
     lon, lat = net["lon"], net["lat"]
@@ -253,7 +258,7 @@ def edge_cut_levels(net, rel, transform, reach):
     ok = (rows >= 0) & (rows < rel.shape[0]) & (cols >= 0) & (cols < rel.shape[1])
     cell = np.full(len(owner), np.inf, "float32")
     r_, c_ = rows[ok], cols[ok]
-    level = np.maximum(reach[r_, c_], rel[r_, c_] + DEPTH_LIMIT_FT)
+    level = np.maximum(reach[r_, c_], rel[r_, c_] + depth_limit_ft)
     level[rel[r_, c_] <= WATER_FT] = np.inf  # samples falling on mapped water are position error, not flooding
     cell[ok] = level
     per_edge = np.full(len(idx), np.inf, "float32")
@@ -285,12 +290,32 @@ def merge_by_name(areas):
         for k in ("residents", "flooded", "pre_cap", "pot_n", "pot_cap_est", "pot_no_est", "care_n", "care_residents",
                   "dialysis_n", "fire_n", "hospital_n"):
             m[k] += ar[k]
+        m["blocks"] = np.concatenate([m["blocks"], ar["blocks"]])
         m["pre_dry"] += ar["pre_dry"]
         m["pre_wet"] += ar["pre_wet"]
         m["cut_roads"] = list(dict.fromkeys(m["cut_roads"] + ar["cut_roads"]))[:6]
         m["outline"] = shapely.union_all([m["outline"], ar["outline"]])
         m["pockets"] += 1
     return sorted(merged.values(), key=lambda x: -x["residents"])
+
+
+def block_context(rel, transform):
+    """Blocks (in block_flood.npz order) with the grid pieces needed to estimate flooded residents at a Bay level."""
+    z = np.load(WORK / "block_flood.npz")
+    blocks = block_shapes(z["x"], z["y"])
+    block_id = rasterio.features.rasterize(((g, i + 1) for i, g in enumerate(blocks.to_crs(4326).geometry)),
+                                           out_shape=rel.shape, transform=transform, fill=0, dtype="int32")
+    land = (rel > LAND_FT) & (block_id > 0)
+    land_cells = np.bincount(block_id[land], minlength=len(blocks) + 1)[1:]
+    return {"z": z, "blocks": blocks, "pop": blocks["pop"].values.astype(float), "block_id": block_id, "land": land,
+            "land_cells": land_cells}
+
+
+def flooded_residents(ctx, reach, L):
+    """Residents of each block living on land the Bay reaches at level L (people spread evenly within each block)."""
+    cells = np.bincount(ctx["block_id"][ctx["land"] & (reach <= L)], minlength=len(ctx["blocks"]) + 1)[1:]
+    share = np.divide(cells, ctx["land_cells"], out=np.zeros(len(ctx["blocks"])), where=ctx["land_cells"] > 0)
+    return ctx["pop"] * share
 
 
 def cutoff_analysis(rel, transform):
@@ -302,18 +327,12 @@ def cutoff_analysis(rel, transform):
     main_nodes = np.flatnonzero(in_main0)
     tree = cKDTree(np.c_[net["x"][main_nodes], net["y"][main_nodes]])
 
-    z = np.load(WORK / "block_flood.npz")
-    blocks = block_shapes(z["x"], z["y"])
+    ctx = block_context(rel, transform)
+    z, blocks, pop = ctx["z"], ctx["blocks"], ctx["pop"]
     bd, bi = tree.query(np.c_[z["x"], z["y"]], distance_upper_bound=SNAP_M)
     bnode = np.where(np.isfinite(bd), main_nodes[np.minimum(bi, len(main_nodes) - 1)], -1)
     bpt = gpd.GeoSeries(gpd.points_from_xy(z["x"], z["y"]), crs=CRS).to_crs(4326)
     blon, blat = bpt.x.values, bpt.y.values
-    pop = blocks["pop"].values.astype(float)
-    # flooded share of each block's land, per variant and level (blocks outside the box never flood)
-    block_id = rasterio.features.rasterize(((g, i + 1) for i, g in enumerate(blocks.to_crs(4326).geometry)),
-                                           out_shape=rel.shape, transform=transform, fill=0, dtype="int32")
-    land = (rel > LAND_FT) & (block_id > 0)
-    land_cells = np.bincount(block_id[land], minlength=len(blocks) + 1)[1:]
 
     feats = json.load(open(DOCS / "points.json"))["features"]
     cap = json.load(open(DOCS / "capacity.json"))
@@ -338,9 +357,7 @@ def cutoff_analysis(rel, transform):
                 result["site_reach"].setdefault(str(f["properties"]["id"]), {})[variant] = round(float(r), 2)
         steps = {}
         for L in LEVELS:
-            flooded_cells = np.bincount(block_id[land & (reach <= L)], minlength=len(blocks) + 1)[1:]
-            share = np.divide(flooded_cells, land_cells, out=np.zeros(len(blocks)), where=land_cells > 0)
-            flooded = pop * share
+            flooded = flooded_residents(ctx, reach, L)  # blocks outside the box never flood
             cut = lvl <= L
             lab = components(n, a, b, ~cut)
             mainL = np.bincount(lab[main_nodes]).argmax()
@@ -374,7 +391,7 @@ def cutoff_analysis(rel, transform):
                 boundary = np.flatnonzero((nodes[a] ^ nodes[b]) & cut)
                 road_names = [nm for nm in net["name"][boundary] if nm]
                 areas.append({
-                    "name": subarea(blon[in_b], blat[in_b], pop[in_b]),
+                    "name": subarea(blon[in_b], blat[in_b], pop[in_b]), "blocks": np.flatnonzero(in_b),
                     "residents": int(round(residents)), "flooded": int(round(flooded[in_b].sum())),
                     "pre_dry": pre_dry, "pre_wet": pre_wet,
                     "pre_cap": int(sum(cap["sites"].get(str(i), [0])[0] for i in pre_dry)),
@@ -395,6 +412,92 @@ def cutoff_analysis(rel, transform):
     return result, net, road_levels
 
 
+def area_names(lon, lat):
+    """Name of the SUBAREAS box holding each point (the first listed wins), else "Other"."""
+    names = np.full(len(lon), "Other", dtype=object)
+    for name, (x0, y0, x1, y1) in reversed(SUBAREAS.items()):
+        names[(lon >= x0) & (lon <= x1) & (lat >= y0) & (lat <= y1)] = name
+    return names
+
+
+def reach_at(reach, transform, lon, lat):
+    """Bay level at which water reaches each point (inf outside the grid)."""
+    cols, rows = ~transform * (lon, lat)
+    rows, cols = np.floor(rows).astype(int), np.floor(cols).astype(int)
+    ok = (rows >= 0) & (rows < reach.shape[0]) & (cols >= 0) & (cols < reach.shape[1])
+    return np.where(ok, reach[np.clip(rows, 0, reach.shape[0] - 1), np.clip(cols, 0, reach.shape[1] - 1)], np.inf)
+
+
+def access_analysis(rel, transform, saved):
+    """Shelter access on foot and by car, and whether areas cut off by car are still connected on foot.
+
+    Per variant and level: flooded residents with a dry pre-identified shelter within a 1 km walk, a 2 km walk, and
+    a 5 km drive (those without, by named area, with the nearest dry shelter of each area); and for each area cut
+    off by car, its residents who can still walk to the main walking network. Walking closes a path at any water,
+    driving at DEPTH_LIMIT_FT; bridges and tunnels stay open."""
+    drive, walk = road_network(), walk_network()
+    ctx = block_context(rel, transform)
+    z, pop = ctx["z"], ctx["pop"]
+    bx, by = z["x"], z["y"]
+    bpt = gpd.GeoSeries(gpd.points_from_xy(bx, by), crs=CRS).to_crs(4326)
+    names = area_names(bpt.x.values, bpt.y.values)
+    feats = json.load(open(DOCS / "points.json"))["features"]
+    cap = json.load(open(DOCS / "capacity.json"))["sites"]
+    pre = [f for f in feats if f["properties"]["k"] == "pre" and str(f["properties"]["id"]) in cap]
+    pre_id = np.array([int(f["properties"]["id"]) for f in pre])
+    plon = np.array([f["geometry"]["coordinates"][0] for f in pre])
+    plat = np.array([f["geometry"]["coordinates"][1] for f in pre])
+    ppt = gpd.GeoSeries(gpd.points_from_xy(plon, plat), crs=4326).to_crs(CRS)
+    src = np.c_[ppt.x.values, ppt.y.values]
+    wa, wb = walk["a"], walk["b"]
+    from scipy.spatial import cKDTree
+    out = {}
+    for variant, fname in VARIANTS.items():
+        reach = np.load(OUT / fname)
+        site_reach = reach_at(reach, transform, plon, plat)
+        walk_lvl = edge_cut_levels(walk, rel, transform, reach, 0.0)
+        drive_lvl = saved["road_levels"][variant]
+        out[variant] = {}
+        for L in LEVELS:
+            fl = flooded_residents(ctx, reach, L)
+            tgt = np.flatnonzero(fl > 0)
+            dry = site_reach > L
+            walk_closed, drive_closed = walk_lvl <= L, drive_lvl <= L
+            best = {}  # per mode: shortest route and its shelter for each flooded block
+            for mode, net, closed, limit in (("walk", walk, walk_closed, WALK_LIMIT_M), ("drive", drive, drive_closed, DRIVE_LIMIT_M)):
+                s_, t_, d_ = network_reach(net, closed, src[dry], np.c_[bx[tgt], by[tgt]], limit, snap_m=ACCESS_SNAP_M)
+                dist, who = np.full(len(tgt), np.inf), np.full(len(tgt), -1)
+                for k in np.argsort(-d_):  # longest first, so the shortest route is written last
+                    dist[t_[k]], who[t_[k]] = d_[k], np.flatnonzero(dry)[s_[k]]
+                best[mode] = (dist, who)
+            wd, dd = best["walk"][0], best["drive"][0]
+            ok = {"w1": wd <= 1000, "w2": wd <= 2000, "d5": dd <= 5000}
+            nm = names[tgt]
+            step = {"total": int(round(fl[tgt].sum())), "covered": {k: int(round(fl[tgt][v].sum())) for k, v in ok.items()},
+                    "areas": {}}
+            for name in np.unique(nm):
+                sel = nm == name
+                entry = {"total": int(round(fl[tgt][sel].sum())),
+                         "uncovered": [int(round(fl[tgt][sel & ~v].sum())) for v in ok.values()]}
+                for mode, (dist, who) in best.items():
+                    i = np.flatnonzero(sel)[np.argmin(dist[sel])]
+                    entry[mode] = [int(pre_id[who[i]]), int(round(dist[i]))] if np.isfinite(dist[i]) else None
+                step["areas"][name] = entry
+            # areas cut off by car: who can still walk out to the main walking network
+            open_nodes = np.unique(np.r_[wa[~walk_closed], wb[~walk_closed]])
+            lab = components(len(walk["x"]), wa, wb, ~walk_closed)
+            main = np.bincount(lab).argmax()
+            d1, i1 = cKDTree(np.c_[walk["x"][open_nodes], walk["y"][open_nodes]]).query(np.c_[bx, by], distance_upper_bound=ACCESS_SNAP_M)
+            on_foot = np.isfinite(d1) & (lab[open_nodes[np.minimum(i1, len(open_nodes) - 1)]] == main)
+            step["foot"] = {ar["name"]: [int(round(pop[ar["blocks"]][on_foot[ar["blocks"]]].sum())),
+                                         int(round(pop[ar["blocks"]][~on_foot[ar["blocks"]]].sum()))]
+                            for ar in saved["result"]["variants"][variant][f"{L:.1f}"]["areas"]}
+            out[variant][f"{L:.1f}"] = step
+            print(f"    {variant} +{L:.1f} ft: flooded {step['total']:,}; with a dry shelter within 1 km walk {step['covered']['w1']:,}, "
+                  f"2 km walk {step['covered']['w2']:,}, 5 km drive {step['covered']['d5']:,}; cut off by car, [walkable, not]: {step['foot']}", flush=True)
+    return out
+
+
 # ---- publish ---------------------------------------------------------------------------------
 
 def write_png(mask, path, rgba):
@@ -404,7 +507,7 @@ def write_png(mask, path, rgba):
     Image.fromarray(img, "RGBA").save(path, optimize=True)
 
 
-def publish(rel, transform, result, net, road_levels):
+def publish(rel, transform, result, net, road_levels, access):
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill
     WEB.mkdir(parents=True, exist_ok=True)
@@ -447,11 +550,15 @@ def publish(rel, transform, result, net, road_levels):
         for L, st in by_level.items():
             areas = []
             for ar in st["areas"]:
-                props = {k: v for k, v in ar.items() if k != "outline"}
+                props = {k: v for k, v in ar.items() if k not in ("outline", "blocks")}
                 areas.append(props)
                 out_rows.append({"variant": variant, "level": float(L), "name": ar["name"], "residents": ar["residents"],
                                  "flooded": ar["flooded"], "pre_cap": ar["pre_cap"], "geometry": ar["outline"]})
-            steps[variant][L] = {**{k: v for k, v in st.items() if k != "areas"}, "areas": areas}
+            acc = access[variant][L]
+            for props in areas:
+                props["foot_open"], props["foot_cut"] = acc["foot"][props["name"]]
+            steps[variant][L] = {**{k: v for k, v in st.items() if k != "areas"}, "areas": areas,
+                                 "access": {k: v for k, v in acc.items() if k != "foot"}}
     outlines = gpd.GeoDataFrame(out_rows, geometry="geometry", crs=CRS).to_crs(4326) if out_rows else None
     (WEB / "areas.geojson").unlink(missing_ok=True)
     if outlines is not None:
@@ -515,7 +622,7 @@ def main():
     t0 = time.time()
     OUT.mkdir(parents=True, exist_ok=True)
     start = sys.argv[1] if len(sys.argv) > 1 else "grid"
-    stages = ["grid", "reach", "barriers", "art", "roads", "publish"]
+    stages = ["grid", "reach", "barriers", "art", "roads", "access", "publish"]
     run = stages[stages.index(start):]
 
     if "grid" in run or not (OUT / "grid.npz").exists():
@@ -562,7 +669,13 @@ def main():
     import pickle
     with open(OUT / "cutoffs.pkl", "rb") as fh:
         saved = pickle.load(fh)
-    publish(rel, transform, saved["result"], road_network(), saved["road_levels"])
+    if "access" in run or not (OUT / "access.pkl").exists():
+        with open(OUT / "access.pkl", "wb") as fh:
+            pickle.dump(access_analysis(rel, transform, saved), fh)
+        log(t0, "shelter access analysis saved")
+    with open(OUT / "access.pkl", "rb") as fh:
+        access = pickle.load(fh)
+    publish(rel, transform, saved["result"], road_network(), saved["road_levels"], access)
     log(t0, f"published to {WEB.relative_to(DOCS.parent.parent)}")
 
 
