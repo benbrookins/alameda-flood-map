@@ -3,92 +3,19 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Airport Area Flood Steps</title>
-<meta name="description" content="How flooding, road cut-offs, and shelter needs change between +2.0 and +3.0 ft around the Oakland airport, Bay Farm Island, and nearby neighborhoods.">
-<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css">
-<link rel="stylesheet" href="../style.css">
-<link rel="stylesheet" href="airport.css">
+<title>Alameda County Flood Risk Explorer has moved</title>
+<link rel="canonical" href="https://alameda-water-level-map.pages.dev/">
+<meta http-equiv="refresh" content="3; url=https://alameda-water-level-map.pages.dev/">
+<script>
+  // Keep the page path, scenario settings (?b=3&r=100...) and #hash.
+  var path = location.pathname.replace(/^\/alameda-flood-map/, "").replace(/index\.html$/, "");
+  location.replace("https://alameda-water-level-map.pages.dev" + (path || "/") + location.search + location.hash);
+</script>
+<style>body{font:16px/1.5 system-ui,sans-serif;margin:3rem 1rem;max-width:36rem}</style>
 </head>
 <body>
-<div class="app">
-  <aside class="panel" id="panel">
-    <header>
-      <p class="back"><a href="../">← Full county map</a></p>
-      <h1>Airport Area Flood Steps</h1>
-      <p class="sub">Bay Farm Island, Harbor Bay, the Oakland airport, Alameda, East Oakland, and the San Leandro Marina, from +2.0 to +3.0 ft in 0.1 ft steps.</p>
-    </header>
-
-    <section class="controls" aria-label="Scenario">
-      <div class="control">
-        <label for="level">Bay water level <span class="val" id="levelVal"></span></label>
-        <input type="range" id="level" min="0" max="10" step="1" value="0">
-        <div class="ticks" aria-hidden="true"><span>+2.0</span><span>+2.5</span><span>+3.0 ft</span></div>
-        <p class="hint">Feet above normal high tide. Only Bay water is modeled here (no FEMA zones or rain).</p>
-      </div>
-
-      <div class="control">
-        <span class="label" id="variantLabel">Shoreline protection</span>
-        <div class="seg" role="group" aria-labelledby="variantLabel" id="variant">
-          <button type="button" data-v="mapped">As mapped</button>
-          <button type="button" data-v="hold">If embankment holds</button>
-        </div>
-        <p class="hint" id="variantHint"></p>
-      </div>
-
-      <div class="control">
-        <span class="label" id="distLabel">Distance to a shelter</span>
-        <div class="seg" role="group" aria-labelledby="distLabel" id="dist">
-          <button type="button" data-v="w1">1 km walk</button>
-          <button type="button" data-v="w2">2 km walk</button>
-          <button type="button" data-v="d5">5 km drive</button>
-        </div>
-        <p class="hint">About 15 and 30 minutes on foot. Routes follow open paths and roads; flooded ones are closed.</p>
-      </div>
-
-      <div class="control">
-        <span class="label" id="cutLabel">Share needing a shelter in cut-off areas</span>
-        <div class="seg" role="group" aria-labelledby="cutLabel" id="cutRate">
-          <button type="button" data-v="20">20%</button>
-          <button type="button" data-v="50">50%</button>
-          <button type="button" data-v="100">100%</button>
-        </div>
-        <p class="hint">Of residents whose homes flood. Higher than elsewhere because people who are cut off can't reach family or friends. A planning assumption.</p>
-      </div>
-
-      <div class="control">
-        <span class="label">Also show</span>
-        <label class="check opt"><input type="checkbox" id="showArt"><span>ART regional flood map at the nearest level (orange)</span></label>
-        <label class="check opt"><input type="checkbox" id="showSites" checked><span>Shelters and critical facilities</span></label>
-      </div>
-    </section>
-
-    <section id="now" aria-live="polite"></section>
-    <section id="chart"></section>
-    <section id="thresholds"></section>
-    <section id="spills"></section>
-    <section id="art"></section>
-
-    <footer class="about">
-      <details>
-        <summary>About these numbers</summary>
-        <p>This is a planning tool, not an official forecast, warning, or evacuation order. Follow local emergency officials.</p>
-        <p>Flooding uses NOAA's 3 m lidar elevation model and its high-tide surface: a spot floods when Bay water at the chosen level can reach it over ground lower than the water ("bathtub" method). It does not model pumps, drainage, waves, or how long water stays high. Results match NOAA's published flood maps at +2.0, +2.5, and +3.0 ft. Tide gates, culverts, and narrow walls or levees may be missing or understated in the elevation data.</p>
-        <p>"If embankment holds" blocks the low points where water first gets over the shoreline protection along the San Leandro Bay channel at Harbor Bay, as if that stretch were higher than the elevation data shows.</p>
-        <p>A road is impassable where water on it would be more than 6 inches deep; bridges and tunnels stay open. An area is cut off by car when its roads no longer connect to the rest of the county. For walking, a path is closed wherever any water covers it, so an area can be cut off on foot before it is cut off by car. Residents come from the 2020 Census (by block); flooded residents assume people are spread evenly within each block.</p>
-        <p>Shelter distances follow OpenStreetMap paths (on foot, at about 4 km/h) or roads (by car), not straight lines, with flooded paths closed and bridges and tunnels left open. Residents of flooded homes are assumed able to reach a dry path within 500 m. OpenStreetMap paths can be incomplete, and routes do not account for stairs, steep hills, or mobility needs.</p>
-        <p>The ART layer is the Bay Conservation and Development Commission's Adapting to Rising Tides regional flood map (CC-BY), shown at its nearest available level (24 or 36 inches). Shelter capacities and estimates are as on the main map.</p>
-        <p>Sources: NOAA Office for Coastal Management (elevation model, tidal surface, sea level rise maps); BCDC Adapting to Rising Tides; U.S. Census Bureau; California Department of Public Health; California Department of Social Services; California Department of Education; OpenStreetMap contributors.</p>
-      </details>
-    </footer>
-  </aside>
-
-  <main class="mapwrap">
-    <div id="map" role="application" aria-label="Flood map of the Oakland airport area"></div>
-    <details class="legend" id="legend"><summary>Legend</summary><div id="legendBody"></div></details>
-  </main>
-</div>
-<noscript><p style="padding:1rem">This map needs JavaScript.</p></noscript>
-<script src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
-<script src="app.js"></script>
+<p>The Alameda County Flood Risk Explorer has moved to
+<a href="https://alameda-water-level-map.pages.dev/">alameda-water-level-map.pages.dev</a>.</p>
+<p>Please update your bookmark.</p>
 </body>
 </html>
